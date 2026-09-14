@@ -48,7 +48,13 @@ void main() {
       ),
     );
 
-    expect(find.byType(Image), findsOneWidget);
+    // The Root photo, specifically — distinct from the screen's own
+    // decorative leaf-motif background image (real-device fix), which is
+    // also legitimately an Image now.
+    expect(
+      find.byWidgetPredicate((w) => w is Image && w.image is NetworkImage),
+      findsOneWidget,
+    );
     expect(find.text('今日の空はきれい'), findsOneWidget);
     expect(find.text('2026/09/07 12:34'), findsOneWidget);
   });

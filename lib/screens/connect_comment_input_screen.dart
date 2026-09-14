@@ -120,50 +120,108 @@ class _ConnectCommentInputScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('言の葉を繋ぐ')),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'この場所に、あなたの言葉だけを重ねます。写真は追加されません。',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _controller,
-                maxLength: ConnectCommentInputScreen.maxCommentLength,
-                maxLines: 3,
-                enabled: !_isPosting,
-                decoration: const InputDecoration(
-                  hintText: 'ここに言葉を入力',
-                  border: OutlineInputBorder(),
+      // Real-device fix: this screen used to be a plain white form, with
+      // nothing tying it back to KOTONOHA's own leaf world — see
+      // _LeafDecoratedBackground's own doc comment. Input remains the
+      // priority: the leaf accent stays low-opacity and off in a corner,
+      // and the TextField below gets an explicit white fill (see its
+      // decoration) so it never loses contrast against the wash.
+      body: _LeafDecoratedBackground(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'この場所に、あなたの言葉だけを重ねます。写真は追加されません。',
+                  style: TextStyle(fontSize: 12),
                 ),
-                onChanged: (_) => setState(() {}),
-              ),
-              if (_errorMessage != null) ...[
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    _errorMessage!,
-                    style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _controller,
+                  maxLength: ConnectCommentInputScreen.maxCommentLength,
+                  maxLines: 3,
+                  enabled: !_isPosting,
+                  decoration: const InputDecoration(
+                    hintText: 'ここに言葉を入力',
+                    border: OutlineInputBorder(),
+                    // Explicit white fill — the background behind this
+                    // screen now carries a faint green wash/leaf accent,
+                    // and the input itself must never lose legibility
+                    // because of it.
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                if (_errorMessage != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      _errorMessage!,
+                      style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                    ),
+                  ),
+                ],
+                ElevatedButton(
+                  onPressed: _canProceed ? _connect : null,
+                  child: _isPosting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('繋ぐ'),
                 ),
               ],
-              ElevatedButton(
-                onPressed: _canProceed ? _connect : null,
-                child: _isPosting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('繋ぐ'),
-              ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A quiet KOTONOHA-leaf-motif background for "言の葉を繋ぐ" (real-device
+/// fix: this screen used to be plain white — see its call site). Mirrors
+/// [KotonohaDetailScreen]'s own version of this: a pale green wash plus
+/// the same generated leaf artwork used elsewhere in the app
+/// (assets/design/leaf_marker.png — this screen's own accent, distinct
+/// from the detail screen's, so the two don't look identical), shown very
+/// faint and tucked into a corner well clear of the input field. No shape
+/// is drawn in code — [Opacity] + [Positioned] is the only styling
+/// applied to the image itself.
+class _LeafDecoratedBackground extends StatelessWidget {
+  const _LeafDecoratedBackground({required this.child});
+
+  final Widget child;
+
+  static const _washColor = Color(0xFFF3F9EE);
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: _washColor,
+      child: Stack(
+        // Clips the corner-peeking leaf image to the screen's own bounds
+        // — a plain rectangular clip on the *container*, not a leaf-
+        // shaped clip on the artwork itself.
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            left: -44,
+            bottom: -36,
+            child: Opacity(
+              opacity: 0.09,
+              child: Image.asset(
+                'assets/design/leaf_marker.png',
+                width: 200,
+              ),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }

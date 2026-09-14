@@ -102,8 +102,7 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _Photo(imageUrl: item.imageUrl)),
-            Padding(
-              padding: const EdgeInsets.all(16),
+            _LeafDecoratedInfoSection(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -138,6 +137,51 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
     );
   }
 
+}
+
+/// Wraps the detail screen's photo-below info column in a quiet KOTONOHA-
+/// leaf-motif background (real-device fix: this area used to be plain
+/// white, reading as a generic form rather than part of KOTONOHA's own
+/// world) — a pale green wash plus the same generated leaf artwork
+/// already used elsewhere in the app
+/// (assets/design/leaf_popup.png), shown very faint and peeking in from a
+/// corner rather than filling the screen, so it never competes with the
+/// photo above it (still the screen's one visual focus) or the text on
+/// top of it. No shape is drawn in code here — [Opacity] + [Positioned]
+/// is the only styling applied to the image itself.
+class _LeafDecoratedInfoSection extends StatelessWidget {
+  const _LeafDecoratedInfoSection({required this.child});
+
+  final Widget child;
+
+  static const _washColor = Color(0xFFF3F9EE);
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: _washColor,
+      child: Stack(
+        // Clips the corner-peeking leaf image to this section's own
+        // bounds — a plain rectangular clip on the *container*, not a
+        // leaf-shaped clip on the artwork itself.
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            right: -36,
+            top: -28,
+            child: Opacity(
+              opacity: 0.10,
+              child: Image.asset(
+                'assets/design/leaf_popup.png',
+                width: 168,
+              ),
+            ),
+          ),
+          Padding(padding: const EdgeInsets.all(16), child: child),
+        ],
+      ),
+    );
+  }
 }
 
 class _Photo extends StatelessWidget {

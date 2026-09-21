@@ -58,6 +58,41 @@ import 'comment_input_screen.dart';
 ///    same path (this screen's own preview, CommentInputScreen's
 ///    preview, the eventual upload) sees a single already-upright image
 ///    that needs no Exif interpretation at all, ever.
+///
+/// Real-device fix (full-screen layout pass): this is a *layout-only*
+/// change — nothing above (deviceOrientation / lockCaptureOrientation /
+/// unlockCaptureOrientation / the Exif-neutralizing decode / the actual
+/// pixel rotation in photo_orientation_utils.dart) was touched. Only how
+/// the live camera feed is *arranged on screen* changed:
+///
+/// - The live-camera mode no longer sits inside a `Column` with the
+///   shutter button as a sibling `Padding` row below `Expanded(
+///   CameraPreview(...))`. That gave [CameraPreview] a box whose *width*
+///   was loose but whose *height* was tight (whatever the `Column` had
+///   left over after the button row) — in landscape specifically, that
+///   left-over height is small relative to the width, so
+///   [CameraPreview]'s own internal `AspectRatio` (untouched — see
+///   camera_preview.dart) shrank the preview's *width* down to keep the
+///   aspect ratio correct within that short box, leaving big empty
+///   margins on both sides (「横向きにするとカメラプレビューが小さくな
+///   る」). [_FillScreenCameraPreview] fixes this the same way production
+///   full-screen-camera apps generally do: give [CameraPreview] a large,
+///   *loose* sizing sandbox (so its own `AspectRatio` can compute its
+///   true, undistorted natural size, whichever orientation it currently
+///   wants) and then apply one single uniform `BoxFit.cover` scale
+///   (`FittedBox`) up to fill whatever real space this widget is given —
+///   cropping evenly at the edges when the camera's own aspect ratio
+///   doesn't match the screen's, never stretching, and never leaving
+///   margins.
+/// - The shared `Scaffold(appBar: AppBar(title: Text('言の葉を置く')))`
+///   that used to wrap *both* the live camera and the post-capture review
+///   is now conditional: the review screen (unchanged) still gets that
+///   `AppBar`, but live-camera mode gets no `AppBar` at all (its own fixed
+///   height was exactly what left the "上下に余白ができる" gap) and never
+///   shows "言の葉を置く" anywhere. A back action is still available in
+///   camera mode — [_CameraBackButton], overlaid on the video itself
+///   inside a `SafeArea` so it clears the status bar/notch without ever
+///   shrinking the camera feed, which is *not* wrapped in `SafeArea`.
 class CameraCaptureScreen extends StatefulWidget {
   const CameraCaptureScreen({super.key});
 
@@ -200,23 +235,60 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   @override
   Widget build(BuildContext context) {
     final capturedPhoto = _capturedPhoto;
+    if (capturedPhoto != null) {
+      // Review mode (post-shutter, before proceeding to the comment
+      // screen) is unchanged — its own existing AppBar/SafeArea/layout,
+      // untouched by this full-screen-camera pass.
+      return Scaffold(
+        appBar: AppBar(title: const Text('言の葉を置く')),
+        body: SafeArea(child: _buildReview(capturedPhoto)),
+      );
+    }
+
+    // Live-camera mode: no AppBar (see class doc comment above for why),
+    // black background so any letterbox-free edge that briefly shows
+    // before the first frame reads as "camera", not as a layout gap.
     return Scaffold(
-      appBar: AppBar(title: const Text('言の葉を置く')),
-      body: SafeArea(
-        child: capturedPhoto != null
-            ? _buildReview(capturedPhoto)
-            : _buildCameraPreview(),
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          _buildCameraLayer(),
+          // Overlaid on top of the video itself, inside its own SafeArea
+          // — clears the status bar/notch without the camera feed behind
+          // it (deliberately outside any SafeArea) ever shrinking for it.
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: _CameraBackButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildCameraPreview() {
+  /// The live-camera mode's entire content below the back-button overlay:
+  /// the error message, the loading spinner, or (once ready) the actual
+  /// full-screen preview plus the shutter button — every one of these
+  /// fills the whole [Stack] it's placed in (`StackFit.expand` in [build]
+  /// makes a non-[Positioned] child like this one fill its parent).
+  Widget _buildCameraLayer() {
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(errorMessage, textAlign: TextAlign.center),
+          child: Text(
+            errorMessage,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white),
+          ),
         ),
       );
     }
@@ -230,14 +302,21 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
             !controller.value.isInitialized) {
           return const Center(child: CircularProgressIndicator());
         }
-        return Column(
+        return Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(child: CameraPreview(controller)),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: FloatingActionButton(
-                onPressed: _takePhoto,
-                child: const Icon(Icons.camera_alt),
+            _FillScreenCameraPreview(controller: controller),
+            // 画面下部中央 — the shutter button floats on top of the
+            // video, inside its own SafeArea so it clears the bottom
+            // system gesture area without the video behind it shrinking.
+            SafeArea(
+              minimum: const EdgeInsets.only(bottom: 24),
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: FloatingActionButton(
+                  onPressed: _takePhoto,
+                  child: const Icon(Icons.camera_alt),
+                ),
               ),
             ),
           ],
@@ -278,6 +357,72 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Scales [controller]'s live preview ([CameraPreview] — a complete,
+/// self-contained widget that already picks the correct proportions and
+/// rotation for the current device orientation entirely on its own via
+/// its own internal `AspectRatio`/`RotatedBox`, both fully untouched here;
+/// see camera_preview.dart) up (or down) to cover every pixel of the
+/// space this widget is given, cropping evenly at the edges rather than
+/// ever leaving margins — docs section 6: 画面いっぱいに表示することを
+/// 優先し、必要であればカメラ映像の一部がクロップされることは許容する.
+///
+/// [_sizingSandbox] exists only because [FittedBox] hands its child fully
+/// *unbounded* constraints, and [CameraPreview]'s own internal
+/// `AspectRatio` cannot compute anything at all without *some* finite
+/// bound to work within. The sandbox's own absolute size is otherwise
+/// meaningless: [CameraPreview] always resolves to its own true,
+/// undistorted proportions inside it (whichever orientation it currently
+/// wants — this widget never inspects or duplicates that decision), and
+/// the single uniform `BoxFit.cover` scale that follows is computed
+/// against this widget's *real* incoming constraints (the actual on-
+/// screen area), not the sandbox — so the sandbox's size never appears in
+/// the final rendered result.
+class _FillScreenCameraPreview extends StatelessWidget {
+  const _FillScreenCameraPreview({required this.controller});
+
+  final CameraController controller;
+
+  static const _sizingSandbox = BoxConstraints(maxWidth: 4096, maxHeight: 4096);
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: ConstrainedBox(
+          constraints: _sizingSandbox,
+          child: CameraPreview(controller),
+        ),
+      ),
+    );
+  }
+}
+
+/// The camera screen's own "戻る" action (docs section 4) — a plain
+/// [AppBar] back button isn't available in live-camera mode (there is no
+/// AppBar; see the class doc comment above), so this sits directly on top
+/// of the video feed instead. A translucent circular backing keeps the
+/// white arrow legible over arbitrary video content, whatever's actually
+/// in frame.
+class _CameraBackButton extends StatelessWidget {
+  const _CameraBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black45,
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.white),
+        tooltip: '戻る',
+        onPressed: onPressed,
+      ),
     );
   }
 }

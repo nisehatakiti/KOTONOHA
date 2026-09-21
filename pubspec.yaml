@@ -47,6 +47,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Only used by test/camera_capture_screen_test.dart to swap in a fake
+  # CameraPlatform.instance (so availableCameras() doesn't hit a real
+  # method channel in `flutter test`) — the same package the `camera`
+  # dependency above is already built on, just declared directly since
+  # a test imports it explicitly.
+  camera_platform_interface: ^2.13.1
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

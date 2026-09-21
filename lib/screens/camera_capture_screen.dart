@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show DeviceOrientation;
+import 'package:path_provider/path_provider.dart';
 
 import '../utils/photo_orientation_utils.dart';
 import 'comment_input_screen.dart';
@@ -73,12 +74,40 @@ import 'comment_input_screen.dart';
 /// only bakes it, exactly as [normalizePhotoOrientation] always did for
 /// non-Android platforms.
 ///
-/// **This still needs real-device confirmation** — see
-/// [_logCaptureDiagnostics] below, added specifically so that if this
-/// hypothesis is *also* wrong for some device, the real
-/// deviceOrientation/sensorOrientation/raw-JPEG-Exif data needed to
-/// diagnose the true cause is already in the device's log output, rather
-/// than requiring yet another guess-and-ship round.
+/// **Real-device fix (4th round — diagnosis, not a rotation change): the
+/// 3rd attempt above was tested on real hardware and *also* failed** — a
+/// landscape capture still came out portrait, rotated 90°. Per the
+/// accompanying instructions, no further rotation-angle guessing is
+/// happening until real evidence is collected. Nothing in the rotation
+/// logic changed in this round (still exactly [normalizePhotoOrientation]
+/// as described above); what changed is the diagnostics:
+///
+/// - [_logCaptureDiagnostics] now logs at three separate points —
+///   `[RAW]` (immediately after [CameraController.takePicture] returns,
+///   before this screen's own code has touched the file at all — read
+///   straight from `photo.path`), `[BEFORE NORMALIZE]` (the same file
+///   re-read from disk inside [_normalizeInPlace], right before
+///   [normalizePhotoOrientation] runs — should log identically to `[RAW]`
+///   if nothing unexpected happens to the file in between; any difference
+///   would itself be a finding), and `[AFTER NORMALIZE]` (the final bytes
+///   actually written back to disk). Every line reports
+///   deviceOrientation, [CameraDescription.sensorOrientation], and the
+///   JPEG's own **raw, un-Exif-corrected SOF pixel dimensions** alongside
+///   its literal Exif Orientation tag value (see
+///   [describeJpegForDebugLog]) — actual pixel dimensions, not just the
+///   Exif tag, exactly per instructions item 4 ("Exifだけを見るのではな
+///   く、width×heightを実際に確認する").
+/// - [_saveDebugCopy] additionally writes the `[RAW]` and
+///   `[AFTER NORMALIZE]` bytes to actual files under this app's external
+///   files directory (`/Android/data/com.nisehatakiti.kotonoha/files/
+///   kotonoha_debug/`) — retrievable via `adb pull` (the exact path is
+///   itself logged) — so the raw camera output can be opened directly in
+///   an external viewer/exiftool, independent of anything this app's own
+///   logging claims about it.
+///
+/// All of this is [kDebugMode]-gated and wrapped so a logging/debug-file
+/// failure can never surface as a capture failure — see each function's
+/// own doc comment.
 ///
 /// Real-device fix (full-screen layout pass): this is a *layout-only*
 /// change — nothing above (deviceOrientation / lockCaptureOrientation /
@@ -177,6 +206,9 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     // capturing — this is the one moment this value is read; it is never
     // re-derived later from the resulting file's own Exif.
     final orientation = controller.value.deviceOrientation;
+    // Groups every log line / debug file for this one shutter press —
+    // see the class doc comment's "4th round" section.
+    final captureId = DateTime.now().microsecondsSinceEpoch.toString();
 
     try {
       // Pins this one shot's own JPEG-orientation encoding to exactly
@@ -185,7 +217,20 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       // fixes inconsistent real-device orientation).
       await controller.lockCaptureOrientation(orientation);
       final photo = await controller.takePicture();
-      await _normalizeInPlace(File(photo.path), orientation);
+
+      // [RAW] — read straight back from disk immediately, before this
+      // screen's own code (_normalizeInPlace) does anything at all to the
+      // file. See the class doc comment for exactly why this exists
+      // alongside (and should match) [BEFORE NORMALIZE].
+      final rawBytes = await File(photo.path).readAsBytes();
+      await _logAndSaveDebugCopy(
+        stage: 'RAW',
+        captureId: captureId,
+        bytes: rawBytes,
+        capturedOrientation: orientation,
+      );
+
+      await _normalizeInPlace(File(photo.path), orientation, captureId);
       if (!mounted) return;
       setState(() => _capturedPhoto = photo);
     } on CameraException {
@@ -216,26 +261,36 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   ///
   /// [capturedOrientation] is no longer used to decide the rotation
   /// itself (see the class doc comment for why) — it's kept here purely
-  /// to label [_logCaptureDiagnostics]' output with what the device's own
+  /// to label [_logAndSaveDebugCopy]'s output with what the device's own
   /// physical orientation was at the exact moment of capture.
   ///
   /// A failure in the actual normalize step (corrupt/unreadable bytes)
   /// just leaves the file exactly as the camera produced it rather than
-  /// blocking the capture over it; [_logCaptureDiagnostics] itself can
+  /// blocking the capture over it; [_logAndSaveDebugCopy] itself can
   /// never throw at all (see its own doc comment) so it's never part of
   /// what this try/catch needs to guard against.
-  Future<void> _normalizeInPlace(File file, DeviceOrientation capturedOrientation) async {
+  Future<void> _normalizeInPlace(
+    File file,
+    DeviceOrientation capturedOrientation,
+    String captureId,
+  ) async {
     try {
       final original = await file.readAsBytes();
-      _logCaptureDiagnostics(
-        stage: 'raw capture (before normalizePhotoOrientation)',
+      // [BEFORE NORMALIZE] — a fresh, independent re-read of the same
+      // file [RAW] already logged in _takePhoto; should report the exact
+      // same values. Any difference between the two would itself be a
+      // finding (something touched the file in between).
+      await _logAndSaveDebugCopy(
+        stage: 'BEFORE NORMALIZE',
+        captureId: captureId,
         bytes: original,
         capturedOrientation: capturedOrientation,
       );
 
       final normalized = normalizePhotoOrientation(original);
-      _logCaptureDiagnostics(
-        stage: 'after normalizePhotoOrientation (final, saved)',
+      await _logAndSaveDebugCopy(
+        stage: 'AFTER NORMALIZE',
+        captureId: captureId,
         bytes: normalized,
         capturedOrientation: capturedOrientation,
       );
@@ -246,29 +301,33 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     }
   }
 
-  /// Real-device fix (3rd attempt) — instructions item 3: logs
-  /// deviceOrientation, the camera's own sensor mounting angle
+  /// Real-device fix (4th round, diagnosis) — instructions item 1/2/3/4:
+  /// logs deviceOrientation, the camera's own sensor mounting angle
   /// ([CameraDescription.sensorOrientation], read straight off the
   /// controller actually in use — never assumed to be the commonly-seen
   /// 90°), and the JPEG's own raw width/height/Exif Orientation (via
-  /// [describeJpegForDebugLog] — see its own doc comment for exactly what
-  /// "raw" means here) for [bytes] at [stage]. Called once for the file
-  /// exactly as the camera produced it and again for the final,
-  /// already-normalized file actually saved, so a device's real capture
-  /// behavior — and whether this fix's own Exif-trusting hypothesis
-  /// actually held for it — is fully visible in `flutter logs`/Logcat
-  /// without needing to re-instrument anything.
+  /// [describeJpegForDebugLog] — actual pixel dimensions, not just the
+  /// Exif tag) for [bytes] at [stage] (`RAW` / `BEFORE NORMALIZE` /
+  /// `AFTER NORMALIZE` — see the class doc comment), under the
+  /// `KOTONOHA.camera` name (`flutter logs`/Logcat).
   ///
-  /// [kDebugMode]-gated so this never runs (and never pays the extra
-  /// decode cost) in a release build; visible via the standard
-  /// `dart:developer` log channel under the `KOTONOHA.camera` name.
-  /// Wrapped in its own try/catch — a logging helper observing the
-  /// capture flow must never be able to break it.
-  void _logCaptureDiagnostics({
+  /// Also writes [bytes] to an actual file — named from [captureId] and a
+  /// filename-safe token derived from [stage] — under this app's external
+  /// files directory, and logs that saved path, so the raw camera output
+  /// itself (not just this app's own interpretation of it, logged above)
+  /// can be pulled off the device (`adb pull`) and opened directly.
+  ///
+  /// [kDebugMode]-gated (never runs, and never pays the extra decode/file-
+  /// IO cost, in a release build); everything in this method is best-
+  /// effort and wrapped so a logging/debug-file failure can never surface
+  /// as a capture failure — a diagnostic observing the capture flow must
+  /// never be able to break it.
+  Future<void> _logAndSaveDebugCopy({
     required String stage,
+    required String captureId,
     required Uint8List bytes,
     required DeviceOrientation capturedOrientation,
-  }) {
+  }) async {
     if (!kDebugMode) return;
     try {
       final sensorOrientation = _controller?.description.sensorOrientation;
@@ -280,6 +339,20 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       );
     } catch (_) {
       // A logging failure must never surface as a capture failure.
+    }
+
+    try {
+      final dir = await getExternalStorageDirectory();
+      if (dir == null) return;
+      final debugDir = Directory('${dir.path}/kotonoha_debug')
+        ..createSync(recursive: true);
+      final stageToken = stage.toLowerCase().replaceAll(' ', '_');
+      final debugFile = File('${debugDir.path}/${captureId}_$stageToken.jpg');
+      await debugFile.writeAsBytes(bytes);
+      developer.log('[$stage] saved debug copy: ${debugFile.path}', name: 'KOTONOHA.camera');
+    } catch (_) {
+      // Same as above — never lets a debug-file failure surface as a
+      // capture failure.
     }
   }
 

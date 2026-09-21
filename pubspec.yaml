@@ -43,6 +43,12 @@ dependencies:
   google_mobile_ads: ^9.1.0
   image: ^4.5.4
 
+  # Debug-only (kDebugMode-gated): camera_capture_screen.dart uses
+  # getExternalStorageDirectory() to save raw/normalized JPEG copies
+  # somewhere `adb pull`-able for real-device camera-orientation
+  # diagnosis — see that file's own _saveDebugCopy doc comment.
+  path_provider: ^2.1.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

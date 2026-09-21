@@ -176,4 +176,90 @@ void main() {
       expect(result, isEmpty);
     });
   });
+
+  // KotonohaMap._handleMarkerTap groups pins for its multi-candidate
+  // bottom sheet with exactly this call shape (filterPinsWithinRadius +
+  // kNearbyLeafGroupRadiusMeters, centered on the tapped pin) — these
+  // cases exercise that grouping logic directly, without needing a live
+  // GoogleMapController (which `flutter test` can never provide; see
+  // kotonoha_map_test.dart's own doc comment).
+  group('leaf tap-picker grouping (kNearbyLeafGroupRadiusMeters)', () {
+    test('a lone pin groups with only itself — the single-candidate, '
+        'no-bottom-sheet case', () {
+      final tapped = KotonohaPin(id: 'a', latitude: _centerLat, longitude: _centerLng);
+
+      final group = filterPinsWithinRadius(
+        pins: [tapped],
+        centerLatitude: tapped.latitude,
+        centerLongitude: tapped.longitude,
+        radiusMeters: kNearbyLeafGroupRadiusMeters,
+      );
+
+      expect(group.map((p) => p.id).toList(), ['a']);
+    });
+
+    test('an exact-same-coordinate pin groups with the tapped one', () {
+      final tapped = KotonohaPin(id: 'a', latitude: _centerLat, longitude: _centerLng);
+      final sameSpot = KotonohaPin(id: 'b', latitude: _centerLat, longitude: _centerLng);
+
+      final group = filterPinsWithinRadius(
+        pins: [tapped, sameSpot],
+        centerLatitude: tapped.latitude,
+        centerLongitude: tapped.longitude,
+        radiusMeters: kNearbyLeafGroupRadiusMeters,
+      );
+
+      expect(group.map((p) => p.id).toSet(), {'a', 'b'});
+    });
+
+    test('a pin 15m away (within GPS-jitter range of "the same spot") '
+        'groups with the tapped one', () {
+      final tapped = KotonohaPin(id: 'a', latitude: _centerLat, longitude: _centerLng);
+      final near = KotonohaPin(id: 'b', latitude: _latitudeNorthOfCenter(15), longitude: _centerLng);
+
+      final group = filterPinsWithinRadius(
+        pins: [tapped, near],
+        centerLatitude: tapped.latitude,
+        centerLongitude: tapped.longitude,
+        radiusMeters: kNearbyLeafGroupRadiusMeters,
+      );
+
+      expect(group.map((p) => p.id).toSet(), {'a', 'b'});
+    });
+
+    test('a pin 50m away is a clearly separate leaf — dropped, not '
+        'grouped', () {
+      final tapped = KotonohaPin(id: 'a', latitude: _centerLat, longitude: _centerLng);
+      final far = KotonohaPin(id: 'b', latitude: _latitudeNorthOfCenter(50), longitude: _centerLng);
+
+      final group = filterPinsWithinRadius(
+        pins: [tapped, far],
+        centerLatitude: tapped.latitude,
+        centerLongitude: tapped.longitude,
+        radiusMeters: kNearbyLeafGroupRadiusMeters,
+      );
+
+      expect(group.map((p) => p.id).toList(), ['a']);
+    });
+
+    test('three pins clustered at one spot all group together', () {
+      final tapped = KotonohaPin(id: 'a', latitude: _centerLat, longitude: _centerLng);
+      final second = KotonohaPin(id: 'b', latitude: _latitudeNorthOfCenter(3), longitude: _centerLng);
+      final third = KotonohaPin(id: 'c', latitude: _latitudeNorthOfCenter(8), longitude: _centerLng);
+      final unrelated = KotonohaPin(
+        id: 'far',
+        latitude: _latitudeNorthOfCenter(500),
+        longitude: _centerLng,
+      );
+
+      final group = filterPinsWithinRadius(
+        pins: [tapped, second, third, unrelated],
+        centerLatitude: tapped.latitude,
+        centerLongitude: tapped.longitude,
+        radiusMeters: kNearbyLeafGroupRadiusMeters,
+      );
+
+      expect(group.map((p) => p.id).toSet(), {'a', 'b', 'c'});
+    });
+  });
 }

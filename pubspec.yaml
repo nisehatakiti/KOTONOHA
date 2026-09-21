@@ -41,6 +41,7 @@ dependencies:
   camera: ^0.12.0+2
   http: ^1.6.0
   google_mobile_ads: ^9.1.0
+  image: ^4.5.4
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +64,24 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # KOTONOHA leaf UI artwork (image-asset pass): generated PNGs, not code-
+  # drawn shapes — see leaf_marker_icon.dart, kotonoha_leaf_popup.dart and
+  # loading_leaf.dart for how each is used. leaf_marker.png/leaf_loading_*
+  # are pixel crops taken verbatim from the design sheet
+  # (assets/design/a_clean_design_asset_sheet_on_a_transparent_checke.png,
+  # not itself bundled). leaf_popup.png is its own dedicated, separately-
+  # generated asset (not a crop of the marker or that sheet); its source
+  # export had its transparency baked in as a checkerboard placeholder
+  # rather than a real alpha channel, so it was chroma-keyed back to real
+  # alpha and tightly cropped — a pixel-level export fix, not a redraw
+  # (see kotonoha_leaf_popup.dart's doc comment).
+  assets:
+    - assets/design/leaf_marker.png
+    - assets/design/leaf_popup.png
+    - assets/design/leaf_loading_1.png
+    - assets/design/leaf_loading_2.png
+    - assets/design/leaf_loading_3.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

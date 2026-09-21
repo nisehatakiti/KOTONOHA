@@ -10,7 +10,7 @@ import '../widgets/ad_banner.dart';
 import '../widgets/kotonoha_leaf_popup.dart';
 import '../widgets/kotonoha_map.dart';
 import 'camera_capture_screen.dart';
-import 'kotonoha_detail_screen.dart';
+import 'kotonoha_words_screen.dart';
 
 /// KOTONOHA's single main screen (docs/ui.md section 1):
 /// ad banner, map, and the two primary actions below it.
@@ -41,6 +41,13 @@ class _HomeScreenState extends State<HomeScreen> {
   LocationPoint? _lastLocation;
   String? _locationErrorMessage;
   bool _isFetchingLocation = false;
+
+  // Real-device fix: lets [_onUpdateMap] call
+  // [KotonohaMapState.refreshCurrentLocation] directly — the reliable,
+  // explicit replacement for relying on KotonohaMap noticing a changed
+  // `currentLocation` constructor value on its own (see that method's own
+  // doc comment for the full reasoning).
+  final _mapKey = GlobalKey<KotonohaMapState>();
 
   // Leaf-popup selection state (STEP11-UI): which pin is selected, and
   // what its popup should currently show. HomeScreen owns all of this —
@@ -116,6 +123,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _lastLocation = location;
         _locationErrorMessage = null;
       });
+      // Real-device fix: called directly (not left to KotonohaMap's own
+      // currentLocation-prop diffing) so "地図を更新" reliably moves the
+      // camera, re-fetches nearby pins, and updates the current-location
+      // marker every time — see KotonohaMapState.refreshCurrentLocation's
+      // own doc comment.
+      await _mapKey.currentState?.refreshCurrentLocation(location);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('地図を更新しました')),
       );
@@ -260,9 +274,20 @@ class _HomeScreenState extends State<HomeScreen> {
       comment: root.comment,
       createdAt: root.createdAt,
     );
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => KotonohaDetailScreen(item: item)));
+    // Real-device UI pass: "言の葉をひらく" now opens KotonohaWordsScreen
+    // first (small fixed photo + scrollable words) rather than jumping
+    // straight to the large-photo KotonohaDetailScreen — that screen is
+    // now reached one tap deeper, by tapping the small photo there.
+    // _selectedConnectedItems is already sitting in state from the same
+    // fetch that produced `root`; no extra network call.
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => KotonohaWordsScreen(
+          item: item,
+          connectedItems: _selectedConnectedItems,
+        ),
+      ),
+    );
     // Keep the same popup showing after returning (STEP11-UI section 16,
     // recommended option) — a successful connect doesn't change the Root
     // post's own data, and no new map pin is ever added for it.
@@ -290,6 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const AdBanner(),
             Expanded(
               child: KotonohaMap(
+                key: _mapKey,
                 currentLocation: _lastLocation,
                 onLeafTap: _onLeafTap,
                 onMapTap: _clearSelection,
@@ -298,11 +324,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 popupContent: _buildLeafPopup(),
               ),
             ),
-            if (_lastLocation != null || _locationErrorMessage != null)
-              _LocationDebugPanel(
-                location: _lastLocation,
-                errorMessage: _locationErrorMessage,
-              ),
+            if (_locationErrorMessage != null)
+              _LocationDebugPanel(errorMessage: _locationErrorMessage!),
             Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
@@ -336,33 +359,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Debug-only readout of the last fetched position (STEP 4 spec allows
-/// showing this for verification; it is not part of the production UI).
+/// A location-failure notice (real-device fix: this used to also show a
+/// raw "緯度: ... 経度: ... 精度: ...m" readout of the last fetched
+/// position whenever one was available — a developer-facing debug value
+/// with no place in the production UI, per the latest UI pass. Only the
+/// error case remains: a genuine "現在地を取得できませんでした" style
+/// failure is still worth surfacing to the user, the same way it already
+/// is via the "地図を更新" button's own SnackBar — this is that same
+/// message for the one path with no button press to hang a SnackBar off
+/// of (the automatic on-launch fetch, [HomeScreen._fetchInitialLocation]).
+/// [_lastLocation]/[_locationErrorMessage] themselves, and every use of
+/// them elsewhere (map centering, the 3km/5m calculations), are
+/// unchanged — only this readout of them is gone.
 class _LocationDebugPanel extends StatelessWidget {
-  const _LocationDebugPanel({required this.location, this.errorMessage});
+  const _LocationDebugPanel({required this.errorMessage});
 
-  final LocationPoint? location;
-  final String? errorMessage;
+  final String errorMessage;
 
   @override
   Widget build(BuildContext context) {
-    final text = errorMessage ??
-        (location == null
-            ? ''
-            : '緯度: ${location!.latitude.toStringAsFixed(6)}  '
-                '経度: ${location!.longitude.toStringAsFixed(6)}  '
-                '精度: ${location!.accuracy.toStringAsFixed(1)}m');
-
     return Container(
       width: double.infinity,
-      color: errorMessage != null ? Colors.red.shade50 : Colors.black87,
+      color: Colors.red.shade50,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Text(
-        text,
-        style: TextStyle(
-          color: errorMessage != null ? Colors.red.shade900 : Colors.white,
-          fontSize: 12,
-        ),
+        errorMessage,
+        style: TextStyle(color: Colors.red.shade900, fontSize: 12),
       ),
     );
   }

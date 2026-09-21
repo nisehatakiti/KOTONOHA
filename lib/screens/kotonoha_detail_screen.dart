@@ -4,6 +4,7 @@ import '../models/kotonoha_item.dart';
 import '../services/location_service.dart';
 import '../utils/distance_utils.dart';
 import '../utils/kotonoha_format.dart';
+import '../widgets/leaf_decorated_section.dart';
 import 'connect_comment_input_screen.dart';
 
 /// "見える → 触れる" detail view for a single 言の葉 (STEP10-B), opened via
@@ -102,7 +103,7 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _Photo(imageUrl: item.imageUrl)),
-            _LeafDecoratedInfoSection(
+            LeafDecoratedSection(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -113,7 +114,6 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
                     formatKotonohaDateTime(item.createdAt),
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
-                  const SizedBox(height: 4),
                   _DistanceStatus(
                     isLoading: _isLoadingDistance,
                     errorMessage: _distanceErrorMessage,
@@ -124,6 +124,19 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
+                      // Real-device fix: Material 3's default ElevatedButton
+                      // is a pale tonal surface, not a solid color — reading
+                      // as another generic form control rather than part of
+                      // KOTONOHA's own green identity. Explicit styling
+                      // only; size/padding/position/tap area and the
+                      // button's onPressed logic (canConnect gating,
+                      // _onConnectPressed) are unchanged.
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4C7A3D),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFF4C7A3D).withValues(alpha: 0.38),
+                        disabledForegroundColor: Colors.white70,
+                      ),
                       onPressed: canConnect ? _onConnectPressed : null,
                       child: const Text('繋ぐ'),
                     ),
@@ -137,51 +150,6 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
     );
   }
 
-}
-
-/// Wraps the detail screen's photo-below info column in a quiet KOTONOHA-
-/// leaf-motif background (real-device fix: this area used to be plain
-/// white, reading as a generic form rather than part of KOTONOHA's own
-/// world) — a pale green wash plus the same generated leaf artwork
-/// already used elsewhere in the app
-/// (assets/design/leaf_popup.png), shown very faint and peeking in from a
-/// corner rather than filling the screen, so it never competes with the
-/// photo above it (still the screen's one visual focus) or the text on
-/// top of it. No shape is drawn in code here — [Opacity] + [Positioned]
-/// is the only styling applied to the image itself.
-class _LeafDecoratedInfoSection extends StatelessWidget {
-  const _LeafDecoratedInfoSection({required this.child});
-
-  final Widget child;
-
-  static const _washColor = Color(0xFFF3F9EE);
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: _washColor,
-      child: Stack(
-        // Clips the corner-peeking leaf image to this section's own
-        // bounds — a plain rectangular clip on the *container*, not a
-        // leaf-shaped clip on the artwork itself.
-        clipBehavior: Clip.hardEdge,
-        children: [
-          Positioned(
-            right: -36,
-            top: -28,
-            child: Opacity(
-              opacity: 0.10,
-              child: Image.asset(
-                'assets/design/leaf_popup.png',
-                width: 168,
-              ),
-            ),
-          ),
-          Padding(padding: const EdgeInsets.all(16), child: child),
-        ],
-      ),
-    );
-  }
 }
 
 class _Photo extends StatelessWidget {
@@ -216,6 +184,18 @@ class _Photo extends StatelessWidget {
   }
 }
 
+/// Real-device fix: this used to also show "距離を確認しています…" while
+/// [isLoading], and once resolved, the specific distance readout (e.g.
+/// 「繋げる距離 あと4m」) — both called out on the latest UI pass as
+/// user-facing clutter KOTONOHA doesn't need. [isLoading]/[distanceMeters]/
+/// [distanceState] are kept as constructor parameters (unused by [build]
+/// now) rather than removed, since the distance computation/gating they
+/// come from ([KotonohaDetailScreen._measureDistance],
+/// `canConnect`/「繋ぐ」's enabled state) is unchanged — only this
+/// widget's own display of them is trimmed. [errorMessage] is kept
+/// visible: a genuine location-fetch failure is still worth surfacing to
+/// the user, the same reasoning as HomeScreen's own location-failure
+/// notice (see _LocationDebugPanel there).
 class _DistanceStatus extends StatelessWidget {
   const _DistanceStatus({
     required this.isLoading,
@@ -231,34 +211,14 @@ class _DistanceStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Text('距離を確認しています…', style: TextStyle(fontSize: 12));
-    }
-
     final error = errorMessage;
-    if (error != null) {
-      return Text(
+    if (error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
         error,
         style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-      );
-    }
-
-    final meters = distanceMeters;
-    final state = distanceState;
-    if (meters == null || state == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          describeDistanceState(state),
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(width: 8),
-        Text(formatDistanceMeters(meters), style: const TextStyle(fontSize: 12)),
-      ],
+      ),
     );
   }
 }

@@ -59,46 +59,52 @@ void main() {
     expect(find.text('2026/09/07 12:34'), findsOneWidget);
   });
 
-  testWidgets('shows a loading state first, with 繋ぐ disabled', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: KotonohaDetailScreen(
-          item: _item,
-          locationService: _FakeLocationService.success(
-            const LocationPoint(latitude: 35.0, longitude: 139.0, accuracy: 5),
+  testWidgets(
+    'shows a loading state first (real-device UI pass: no "距離を確認して '
+    'います…" text anymore — see the distance-display group below), with '
+    '繋ぐ disabled',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: KotonohaDetailScreen(
+            item: _item,
+            locationService: _FakeLocationService.success(
+              const LocationPoint(latitude: 35.0, longitude: 139.0, accuracy: 5),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(find.text('距離を確認しています…'), findsOneWidget);
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNull);
-  });
+      expect(find.text('距離を確認しています…'), findsNothing);
+      final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+      expect(button.onPressed, isNull);
+    },
+  );
 
-  testWidgets('at the same point (0m), shows 繋げる距離 and enables 繋ぐ', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: KotonohaDetailScreen(
-          item: _item,
-          locationService: _FakeLocationService.success(
-            const LocationPoint(latitude: 35.0, longitude: 139.0, accuracy: 5),
+  testWidgets(
+    'at the same point (0m), enables 繋ぐ (real-device UI pass: no '
+    '"繋げる距離"/"あと 0m" readout anymore — see the distance-display '
+    'group below)',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: KotonohaDetailScreen(
+            item: _item,
+            locationService: _FakeLocationService.success(
+              const LocationPoint(latitude: 35.0, longitude: 139.0, accuracy: 5),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('繋げる距離'), findsOneWidget);
-    expect(find.text('あと 0m'), findsOneWidget);
+      expect(find.text('繋げる距離'), findsNothing);
+      expect(find.text('あと 0m'), findsNothing);
 
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNotNull);
-  });
+      final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+      expect(button.onPressed, isNotNull);
+    },
+  );
 
   testWidgets('tapping 繋ぐ while enabled opens ConnectCommentInputScreen '
       '(STEP11)', (tester) async {
@@ -120,29 +126,35 @@ void main() {
     expect(find.byType(ConnectCommentInputScreen), findsOneWidget);
   });
 
-  testWidgets('about 7m away (touchable), shows 触れられる距離 and keeps '
-      '繋ぐ disabled', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: KotonohaDetailScreen(
-          item: _item,
-          // ~7.8m north of the item's location (0.00007 deg lat ~= 7.8m).
-          locationService: _FakeLocationService.success(
-            const LocationPoint(
-              latitude: 35.00007,
-              longitude: 139.0,
-              accuracy: 5,
+  testWidgets(
+    'about 7m away (touchable, not yet connectable) keeps 繋ぐ disabled '
+    '(real-device UI pass: no "触れられる距離" readout anymore — the '
+    '"touchable" vs "connectable" classification itself is covered '
+    'directly by distance_utils_test.dart; this only confirms the '
+    'button stays disabled for it end-to-end)',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: KotonohaDetailScreen(
+            item: _item,
+            // ~7.8m north of the item's location (0.00007 deg lat ~= 7.8m).
+            locationService: _FakeLocationService.success(
+              const LocationPoint(
+                latitude: 35.00007,
+                longitude: 139.0,
+                accuracy: 5,
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('触れられる距離'), findsOneWidget);
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNull);
-  });
+      expect(find.text('触れられる距離'), findsNothing);
+      final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+      expect(button.onPressed, isNull);
+    },
+  );
 
   testWidgets('when location fails, shows an error and keeps 繋ぐ disabled '
       'without crashing', (tester) async {

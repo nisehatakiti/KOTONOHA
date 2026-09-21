@@ -28,6 +28,30 @@ const double kTouchableRadiusMeters = 10.0;
 /// this is applied (Bounding Box query + the Haversine final filter).
 const double kMarkerVisibleRadiusMeters = 3000.0;
 
+/// "同じ地点・非常に近い地点" grouping radius for the map's tap-picker
+/// (multiple-言の葉-at-one-spot bottom sheet, see KotonohaMap): two Root
+/// pins whose real-world distance is at most this many meters are treated
+/// as candidates for the same tap, rather than requiring exact-matching
+/// GPS coordinates.
+///
+/// A fixed real-world-meters radius was chosen over a screen-pixel/zoom-
+/// derived one deliberately: this app's map operates at a roughly constant
+/// city-scale zoom (KotonohaMap._regionZoom == 13, chosen for a ~5km-wide
+/// view around the user, docs STEP5), where a fixed on-screen pixel radius
+/// would translate to hundreds of meters — far too wide, and exactly the
+/// "離れた言の葉まで同じ候補としてしまう" failure this constant exists to
+/// avoid — while what actually needs grouping ("posted at essentially the
+/// same physical spot") is inherently a real-world-distance concept
+/// regardless of the current zoom.
+///
+/// 20m — double [kTouchableRadiusMeters] (10m), the app's own existing
+/// "close enough to be basically the same place" threshold — comfortably
+/// covers typical consumer-GPS jitter (~5-20m) between two posts made at
+/// the same physical spot on different visits, while staying two orders of
+/// magnitude below [kMarkerVisibleRadiusMeters] (3000m) so genuinely
+/// separate nearby leaves are never folded into the same candidate group.
+const double kNearbyLeafGroupRadiusMeters = 20.0;
+
 KotonohaDistanceState classifyDistanceState(double meters) {
   if (meters <= kConnectableRadiusMeters) return KotonohaDistanceState.connectable;
   if (meters <= kTouchableRadiusMeters) return KotonohaDistanceState.touchable;

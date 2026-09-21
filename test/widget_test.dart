@@ -50,22 +50,26 @@ void main() {
     expect(find.text('言の葉を置く'), findsOneWidget);
   });
 
-  testWidgets('地図を更新 fetches and displays latitude/longitude/accuracy', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: HomeScreen(locationService: _FakeLocationService.success()),
-      ),
-    );
+  testWidgets(
+    '地図を更新 fetches the current location and shows the confirmation '
+    'snackbar (real-device UI pass: the 緯度/経度/精度 debug readout is no '
+    'longer shown — see _LocationDebugPanel in home_screen.dart; the '
+    'underlying fetch itself is unchanged)',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(locationService: _FakeLocationService.success()),
+        ),
+      );
 
-    await tester.tap(find.text('地図を更新'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('地図を更新'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('地図を更新しました'), findsOneWidget);
-    expect(find.textContaining('緯度: 35.681236'), findsOneWidget);
-    expect(find.textContaining('精度: 12.5m'), findsOneWidget);
-  });
+      expect(find.text('地図を更新しました'), findsOneWidget);
+      expect(find.textContaining('緯度:'), findsNothing);
+      expect(find.textContaining('精度:'), findsNothing);
+    },
+  );
 
   testWidgets('地図を更新 shows an error when the location service is off', (
     WidgetTester tester,
@@ -99,7 +103,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(locationService.callCount, 1);
-      expect(find.textContaining('緯度: 35.681236'), findsOneWidget);
+      // Real-device UI pass: the 緯度/経度/精度 debug readout is gone —
+      // the location fetch itself (callCount above) is what this test is
+      // really verifying, and that's unchanged.
+      expect(find.textContaining('緯度:'), findsNothing);
       expect(find.text('地図を更新しました'), findsNothing);
     },
   );

@@ -134,7 +134,7 @@ class _ConnectCommentInputScreenState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'この場所に、あなたの言葉だけを重ねます。写真は追加されません。',
+                  'この場所に、あなたの言葉だけを重ねます。',
                   style: TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 12),
@@ -165,12 +165,27 @@ class _ConnectCommentInputScreenState
                   ),
                 ],
                 ElevatedButton(
+                  // Real-device fix: an explicit natural green instead of
+                  // Material 3's default pale tonal surface — see
+                  // KotonohaDetailScreen's own 繋ぐ button for the same
+                  // change/reasoning. Size/position/tap area and the
+                  // _canProceed-gated enable/disable logic, plus
+                  // _connect's own save/send behavior, are unchanged.
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4C7A3D),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF4C7A3D).withValues(alpha: 0.38),
+                    disabledForegroundColor: Colors.white70,
+                  ),
                   onPressed: _canProceed ? _connect : null,
                   child: _isPosting
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
                         )
                       : const Text('繋ぐ'),
                 ),
@@ -210,13 +225,18 @@ class _LeafDecoratedBackground extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         children: [
           Positioned(
-            left: -44,
-            bottom: -36,
+            // Real-device fix: sized up a little from the original 200px
+            // accent (still low-opacity, still tucked into the corner,
+            // still well clear of the input field) — the offset grows by
+            // the same proportion so it keeps peeking in by about the
+            // same amount rather than intruding further.
+            left: -55,
+            bottom: -45,
             child: Opacity(
               opacity: 0.09,
               child: Image.asset(
                 'assets/design/leaf_marker.png',
-                width: 200,
+                width: 250,
               ),
             ),
           ),

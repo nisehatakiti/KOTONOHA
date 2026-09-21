@@ -1,84 +1,48 @@
-import 'dart:ui' as ui;
-
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import 'leaf_shape.dart';
-
-/// Rasterizes a leaf silhouette — pointed tip up, pointed stem-base down —
-/// into a [BitmapDescriptor] for the map's Root-post markers (STEP13,
-/// docs/map-ui-spec.md section 5): 「誰が見てもできるだけ「葉っぱ」に見え
-/// るデザイン」「葉の付け根・茎にあたる部分が地面側の投稿位置を指す」.
+/// The generated leaf artwork used for every leaf surface in KOTONOHA —
+/// the map's small Root-post [Marker] ([createLeafMarkerIcon]) and the
+/// expanded [KotonohaLeafPopup] background both use this exact file, just
+/// displayed at different sizes.
 ///
-/// google_maps_flutter markers can't render a Flutter widget directly, so
-/// this draws the glyph to an offscreen canvas and encodes it as a PNG.
-/// The canvas is deliberately taller than it is wide (a vertical leaf, not
-/// a round icon): the leaf body ([buildLeafPath]) fills the top
-/// `height - stemLength` pixels, and a short stem is drawn straight down
-/// from its tip to the very last pixel row. [Marker] defaults to anchoring
-/// at a bitmap's bottom-center, so that stem tip — not the leaf body's
-/// visual center — is what actually marks the coordinate.
-Future<BitmapDescriptor> createLeafMarkerIcon({
-  double width = 56,
-  double height = 84,
-  double stemLength = 10,
-}) async {
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height + stemLength));
+/// Image-asset pass: this is a pixel crop, taken verbatim (no redraw, no
+/// recolor, no reshaping) from the generated design sheet
+/// assets/design/a_clean_design_asset_sheet_on_a_transparent_checke.png —
+/// specifically its "マーカー（通常）" cell, with the surrounding label
+/// text excluded by the crop. It is the *only* cell in that sheet that is
+/// both leaf-only (no sample text baked in) and free of the sheet's map
+/// background, which is why the popup reuses it too rather than the
+/// sheet's own dedicated "ポップアップ" cells (see
+/// kotonoha_leaf_popup.dart's doc comment for why those weren't usable as
+/// a live background).
+const String kLeafAsset = 'assets/design/leaf_marker.png';
 
-  final centerX = width / 2;
-  final bodySize = Size(width, height);
-  final bodyPath = buildLeafPath(bodySize);
+/// [kLeafAsset]'s own pixel dimensions, exactly as cropped — used
+/// wherever a caller needs to size a display box for it without
+/// distorting its proportions (e.g. [KotonohaLeafPopup]).
+const double kLeafAssetNativeWidth = 154;
+const double kLeafAssetNativeHeight = 311;
 
-  const fillColor = Color(0xFF4A8A3B);
-  const lineColor = Color(0xFF2F5C26);
-
-  final fillPaint = Paint()..color = fillColor;
-  final outlinePaint = Paint()
-    ..color = lineColor
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.6;
-  final veinPaint = Paint()
-    ..color = lineColor
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.2
-    ..strokeCap = StrokeCap.round;
-  final stemPaint = Paint()
-    ..color = lineColor
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.4
-    ..strokeCap = StrokeCap.round;
-
-  canvas.drawPath(bodyPath, fillPaint);
-  canvas.drawPath(bodyPath, outlinePaint);
-
-  // Center vein, tip to base — the simplest possible cue that this is a
-  // leaf and not just a generic almond/teardrop, without becoming
-  // illustrative (docs section 3: 「過度にイラスト的・装飾的にしない」).
-  canvas.drawPath(
-    Path()
-      ..moveTo(centerX, height * 0.1)
-      ..quadraticBezierTo(centerX, height * 0.4, centerX, height),
-    veinPaint,
+/// Loads [kLeafAsset] as a [BitmapDescriptor] for the map's Root-post
+/// markers (docs/map-ui-spec.md section 5). No shape is drawn here —
+/// [BitmapDescriptor.asset] decodes and scales the PNG itself; this
+/// function's only job is picking the on-screen [height] (width follows
+/// automatically from the asset's own aspect ratio, so its proportions
+/// are never distorted — see [BitmapDescriptor.asset]'s "fitHeight-style"
+/// behavior when only one dimension is given).
+///
+/// [Marker] anchors a bitmap at its bottom-center by default, which is
+/// also where this artwork's own stem tip sits (the stem is baked into
+/// the artwork itself, not drawn separately), so that's what ends up
+/// marking the coordinate — no extra anchor configuration needed.
+Future<BitmapDescriptor> createLeafMarkerIcon(
+  BuildContext context, {
+  double height = 72,
+}) {
+  return BitmapDescriptor.asset(
+    createLocalImageConfiguration(context),
+    kLeafAsset,
+    height: height,
   );
-  // One pair of short side veins for texture, kept minimal.
-  canvas.drawLine(
-    Offset(centerX, height * 0.34),
-    Offset(width * 0.30, height * 0.22),
-    veinPaint,
-  );
-  canvas.drawLine(
-    Offset(centerX, height * 0.34),
-    Offset(width * 0.70, height * 0.22),
-    veinPaint,
-  );
-
-  // The stem: the base/"硬い部分" pointing straight down at the marker's
-  // actual coordinate.
-  canvas.drawLine(Offset(centerX, height), Offset(centerX, height + stemLength), stemPaint);
-
-  final picture = recorder.endRecording();
-  final image = await picture.toImage(width.round(), (height + stemLength).round());
-  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-  return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
 }

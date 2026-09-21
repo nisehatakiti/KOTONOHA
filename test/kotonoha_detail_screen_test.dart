@@ -180,4 +180,86 @@ void main() {
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
     expect(button.onPressed, isNull);
   });
+
+  group('real-device fix: pinch-zoom on the large photo', () {
+    testWidgets(
+      'the photo is wrapped in an InteractiveViewer (pinch-to-zoom/pan), '
+      'configured minScale 1.0 (never smaller than the initial fit) and '
+      'maxScale 4.0',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: KotonohaDetailScreen(
+              item: _item,
+              locationService: _FakeLocationService.failure(
+                LocationFailureReason.unknown,
+              ),
+            ),
+          ),
+        );
+
+        final viewer = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
+        expect(viewer.minScale, 1.0);
+        expect(viewer.maxScale, 4.0);
+
+        final photoFinder = find.byWidgetPredicate(
+          (w) => w is Image && w.image is NetworkImage,
+        );
+        expect(
+          find.descendant(of: find.byType(InteractiveViewer), matching: photoFinder),
+          findsOneWidget,
+          reason: 'the photo itself must be inside the InteractiveViewer, '
+              'not just a sibling of it',
+        );
+      },
+    );
+
+    testWidgets(
+      '実機修正: initial fit is BoxFit.contain (whole photo visible, never '
+      'cropped) — item 4/5 requires this as the starting state before any '
+      'pinch, for both portrait and landscape source photos alike (this '
+      'widget never branches on the photo\'s own aspect ratio)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: KotonohaDetailScreen(
+              item: _item,
+              locationService: _FakeLocationService.failure(
+                LocationFailureReason.unknown,
+              ),
+            ),
+          ),
+        );
+
+        final photo = tester.widget<Image>(
+          find.byWidgetPredicate((w) => w is Image && w.image is NetworkImage),
+        );
+        expect(photo.fit, BoxFit.contain);
+      },
+    );
+
+    testWidgets(
+      '実機修正: no dedicated "拡大" icon anywhere on this screen — this '
+      'screen is only reached by tapping the small photo on '
+      'KotonohaWordsScreen (unchanged); pinch-zoom is the only new '
+      'interaction added here',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: KotonohaDetailScreen(
+              item: _item,
+              locationService: _FakeLocationService.failure(
+                LocationFailureReason.unknown,
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          find.byWidgetPredicate((w) => w is Icon && w.icon == Icons.zoom_out_map),
+          findsNothing,
+        );
+      },
+    );
+  });
 }

@@ -86,6 +86,15 @@ import 'leaf_marker_icon.dart';
 /// consumed by the popup first (see [KotonohaLeafPopup]'s own
 /// `GestureDetector`) and never reaches this closing layer, while a tap
 /// anywhere else closes it.
+///
+/// Real-device fix: Google Maps' own standard chrome that KOTONOHA never
+/// designed for — the "directions / open in Google Maps app" toolbar
+/// ([GoogleMap.mapToolbarEnabled], appears when a marker/POI is tapped),
+/// the compass ([GoogleMap.compassEnabled]), and the indoor floor-level
+/// picker ([GoogleMap.indoorViewEnabled]) — is all disabled, alongside
+/// the already-disabled `myLocationButtonEnabled`/`zoomControlsEnabled`.
+/// KOTONOHA's own controls (pan, pinch-zoom, marker tap, "地図を更新")
+/// are unaffected — none of those are Google's own UI chrome.
 class KotonohaMap extends StatefulWidget {
   const KotonohaMap({
     super.key,
@@ -507,6 +516,14 @@ class KotonohaMapState extends State<KotonohaMap> {
                 markers: _buildMarkers(),
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
+                // Real-device fix: Google Maps' own standard chrome —
+                // none of it is part of KOTONOHA's own UI (地図を更新/
+                // 言の葉マーカー/ポップアップ) and a tapped marker/POI
+                // popping up Google's own "directions / open in Maps app"
+                // toolbar reportedly appeared on a real device.
+                mapToolbarEnabled: false,
+                compassEnabled: false,
+                indoorViewEnabled: false,
                 // STEP14 section 9: disables pan/pinch-zoom/rotate/tilt at
                 // the native map SDK level while a leaf is open, rather
                 // than relying solely on IgnorePointer above (which some

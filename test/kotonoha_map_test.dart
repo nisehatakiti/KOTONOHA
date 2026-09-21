@@ -169,4 +169,47 @@ void main() {
       },
     );
   });
+
+  group(
+    '実機修正: unwanted standard Google Maps chrome is disabled — '
+    'KOTONOHA never designed for the directions/open-in-Maps-app '
+    'toolbar, the compass, or the indoor floor picker',
+    () {
+      testWidgets('mapToolbarEnabled / compassEnabled / indoorViewEnabled are all false', (
+        tester,
+      ) async {
+        await tester.pumpWidget(_wrap(const KotonohaMap()));
+
+        final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+        expect(map.mapToolbarEnabled, isFalse);
+        expect(map.compassEnabled, isFalse);
+        expect(map.indoorViewEnabled, isFalse);
+      });
+
+      testWidgets(
+        'already-disabled chrome (myLocationButtonEnabled/'
+        'zoomControlsEnabled) is still disabled — not reverted by this '
+        'change',
+        (tester) async {
+          await tester.pumpWidget(_wrap(const KotonohaMap()));
+
+          final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+          expect(map.myLocationButtonEnabled, isFalse);
+          expect(map.zoomControlsEnabled, isFalse);
+        },
+      );
+
+      testWidgets(
+        "KOTONOHA's own controls (pan/pinch-zoom when nothing is "
+        'selected) are unaffected by disabling Google\'s own chrome',
+        (tester) async {
+          await tester.pumpWidget(_wrap(const KotonohaMap()));
+
+          final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+          expect(map.scrollGesturesEnabled, isTrue);
+          expect(map.zoomGesturesEnabled, isTrue);
+        },
+      );
+    },
+  );
 }

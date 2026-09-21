@@ -152,6 +152,18 @@ class _KotonohaDetailScreenState extends State<KotonohaDetailScreen> {
 
 }
 
+/// Real-device fix: pinch-zoom. Initial state is still the whole photo
+/// fit inside the available area — `BoxFit.contain` (previously
+/// `BoxFit.cover`, which cropped it; contain is what item 4/5 of the
+/// instructions require: "写真全体が画面内に収まる状態を初期状態とす
+/// る"), original aspect ratio unchanged, both portrait and landscape
+/// photos included — with [InteractiveViewer] layered on top providing
+/// pinch-to-zoom-in/out and, once zoomed, drag-to-pan, entirely on top of
+/// that same initial fit (`constrained: true`, [InteractiveViewer]'s own
+/// default, sizes its child to the viewport exactly as if it weren't
+/// there at all before any scale is applied). No dedicated "拡大" icon is
+/// added — this screen is still reached only by tapping the small photo
+/// on KotonohaWordsScreen, unchanged.
 class _Photo extends StatelessWidget {
   const _Photo({required this.imageUrl});
 
@@ -163,21 +175,25 @@ class _Photo extends StatelessWidget {
     if (url == null) {
       return Container(color: Colors.grey.shade300);
     }
-    return Image.network(
-      url,
-      width: double.infinity,
-      fit: BoxFit.cover,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return Container(
-          color: Colors.grey.shade200,
-          child: const Center(child: CircularProgressIndicator()),
-        );
-      },
-      errorBuilder: (context, error, stackTrace) => Container(
-        color: Colors.grey.shade300,
-        child: Center(
-          child: Icon(Icons.broken_image, size: 48, color: Colors.grey.shade600),
+    return InteractiveViewer(
+      minScale: 1.0,
+      maxScale: 4.0,
+      child: Image.network(
+        url,
+        width: double.infinity,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            color: Colors.grey.shade200,
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: Colors.grey.shade300,
+          child: Center(
+            child: Icon(Icons.broken_image, size: 48, color: Colors.grey.shade600),
+          ),
         ),
       ),
     );

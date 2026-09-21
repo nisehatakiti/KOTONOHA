@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:flutter/services.dart' show DeviceOrientation;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
@@ -186,119 +185,36 @@ void main() {
     });
   });
 
-  group('rotationDegreesForDeviceOrientation', () {
-    // The mapping read directly out of camera_android_camerax's own
-    // source (_getRotationConstantFromDeviceOrientation) — see
-    // photo_orientation_utils.dart's own doc comment for the full
-    // evidence chain. Locking this mapping down in a test protects
-    // against silently reintroducing the "横向きで撮影すると縦向きになる"
-    // bug via an unrelated future edit. Note this is the OPPOSITE
-    // landscapeLeft/landscapeRight pairing from the 1st (failed) fix
-    // attempt's camera_preview.dart-based table.
-    test('portraitUp -> 0°', () {
-      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.portraitUp), 0);
-    });
-
-    test('landscapeLeft -> 90°', () {
-      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.landscapeLeft), 90);
-    });
-
-    test('portraitDown -> 180°', () {
-      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.portraitDown), 180);
-    });
-
-    test('landscapeRight -> 270°', () {
-      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.landscapeRight), 270);
-    });
-  });
-
-  group('rotatePhotoForDeviceOrientation (real-device fix, 2nd attempt)', () {
-    // Mirrors normalizePhotoOrientation's own directional test group
-    // above, but exercises the actual capture-time code path: the
-    // *source* bytes carry no Exif Orientation tag at all (simulating
-    // Android's camera plugin), and — unlike the 1st (failed) attempt's
-    // normalizePhotoOrientationWithOverride — the rotation is applied
-    // directly to the pixels via img.copyRotate, with no Exif value ever
-    // written or read as an intermediate step.
-    for (final testCase in [
-      // (撮影時のDeviceOrientation, 対応する回転角(度, 時計回り), シナリオ名)
-      (DeviceOrientation.portraitUp, 0, '縦持ち撮影 — 回転なし'),
-      (DeviceOrientation.landscapeLeft, 90, '左90度横持ち撮影 — 90度回転'),
-      (DeviceOrientation.landscapeRight, 270, '右90度横持ち撮影 — 270度(-90度)回転'),
-      (DeviceOrientation.portraitDown, 180, '180度(逆さ)撮影 — 180度回転'),
-    ]) {
-      final (deviceOrientation, angle, name) = testCase;
-      test(
-        '$name: Exifタグなしの生バッファから、deviceOrientationだけを根拠に'
-        'ピクセルそのものを正しい向きに回転できる(Exifには一切依存しない)',
-        () {
-          final source = _quadrantImage(width: 32, height: 16);
-          // No Exif Orientation tag at all on the source bytes — this is
-          // the whole point: nothing here is read from (untrustworthy,
-          // and on Android sometimes simply absent) Exif.
-          final bytes = _jpegWithOrientation(source, null);
-
-          final rotated = rotatePhotoForDeviceOrientation(bytes, deviceOrientation);
-          final decoded = img.decodeImage(rotated)!;
-
-          final expected = img.copyRotate(source, angle: angle);
-          expect(decoded.width, expected.width, reason: 'width');
-          expect(decoded.height, expected.height, reason: 'height');
-          for (final corner in _corners(decoded.width, decoded.height)) {
-            final actual = decoded.getPixel(corner.$1, corner.$2);
-            final want = expected.getPixel(corner.$1, corner.$2);
-            expect(actual.r, closeTo(want.r, 4), reason: 'corner $corner red');
-            expect(actual.g, closeTo(want.g, 4), reason: 'corner $corner green');
-            expect(actual.b, closeTo(want.b, 4), reason: 'corner $corner blue');
-          }
-
-          expect(
-            decoded.exif.imageIfd.hasOrientation,
-            isFalse,
-            reason: 'Exif Orientation tag must be cleared on the output, not '
-                'just left unused',
-          );
-        },
-      );
-    }
-
+  group('describeJpegForDebugLog (real-device fix, 3rd attempt)', () {
     test(
-      'a source file that already carries a (misleading) Exif Orientation '
-      'tag is rotated purely from deviceOrientation — the tag is never '
-      'read at all, so it cannot skew the result',
+      'reports the JPEG\'s raw (pre-bake) SOF pixel dimensions and the '
+      'literal Exif Orientation tag value, not the Exif-corrected ones',
       () {
-        final source = _quadrantImage(width: 32, height: 16);
-        // Deliberately set a "wrong"/unrelated Exif Orientation tag —
-        // this function must produce exactly the same pixels as the
-        // no-Exif-tag case above for the same deviceOrientation.
+        final source = _flatImage(width: 8, height: 4); // raw: landscape
         final bytes = _jpegWithOrientation(source, 6);
 
-        final rotated = rotatePhotoForDeviceOrientation(
-          bytes,
-          DeviceOrientation.landscapeLeft,
-        );
-        final decoded = img.decodeImage(rotated)!;
-        final expected = img.copyRotate(source, angle: 90);
+        final description = describeJpegForDebugLog(bytes);
 
-        expect(decoded.width, expected.width);
-        expect(decoded.height, expected.height);
-        for (final corner in _corners(decoded.width, decoded.height)) {
-          final actual = decoded.getPixel(corner.$1, corner.$2);
-          final want = expected.getPixel(corner.$1, corner.$2);
-          expect(actual.r, closeTo(want.r, 4), reason: 'corner $corner red');
-          expect(actual.g, closeTo(want.g, 4), reason: 'corner $corner green');
-          expect(actual.b, closeTo(want.b, 4), reason: 'corner $corner blue');
-        }
+        // Raw SOF dimensions (8x4, unswapped) — NOT what
+        // normalizePhotoOrientation's own Exif-corrected output would
+        // report (4x8) for these same source bytes; see that group's
+        // first test above for the contrast.
+        expect(description, contains('rawWidth=8'));
+        expect(description, contains('rawHeight=4'));
+        expect(description, contains('exifOrientation=6'));
       },
     );
 
-    test('bytes that can\'t be decoded as an image are returned unchanged, '
-        'never crash', () {
+    test('reports "none" when the source has no Exif Orientation tag at all', () {
+      final source = _flatImage(width: 5, height: 5);
+      final bytes = _jpegWithOrientation(source, null);
+
+      expect(describeJpegForDebugLog(bytes), contains('exifOrientation=none'));
+    });
+
+    test('bytes that can\'t be decoded as an image are reported, never crash', () {
       final garbage = Uint8List.fromList([0, 1, 2, 3, 4, 5]);
-      expect(
-        rotatePhotoForDeviceOrientation(garbage, DeviceOrientation.landscapeLeft),
-        same(garbage),
-      );
+      expect(describeJpegForDebugLog(garbage), contains('undecodable'));
     });
   });
 }

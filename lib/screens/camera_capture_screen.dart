@@ -1,7 +1,9 @@
+import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show DeviceOrientation;
 
@@ -17,7 +19,7 @@ import 'comment_input_screen.dart';
 /// passed forward in-memory until a later STEP wires up the actual
 /// POST /api/kotonoha upload (docs/api.md section 5).
 ///
-/// Real-device fix (2nd attempt — see below): no 縦/横 choice, and no
+/// Real-device fix (3rd attempt — see below): no 縦/横 choice, and no
 /// manual rotate control, is ever shown to the user. Orientation is
 /// corrected automatically and unconditionally at capture time:
 ///
@@ -31,33 +33,52 @@ import 'comment_input_screen.dart';
 ///    [CameraController.takePicture], and releases the lock afterward
 ///    ([CameraController.unlockCaptureOrientation], in a `finally` block
 ///    so a subsequent "撮り直す" capture isn't left pinned to a stale
-///    reading).
-/// 2. **This screen never reads, trusts, or bakes the resulting file's
-///    own Exif Orientation tag at all**, on any platform. The 1st fix
-///    attempt still routed through Exif (computing an Exif Orientation
-///    value from [DeviceOrientation] and letting `image`'s own
-///    `bakeOrientation` interpret it) and was confirmed wrong on real
-///    Android hardware — landscape captures still came out portrait. On
-///    Android, [_normalizeInPlace] now calls
-///    [rotatePhotoForDeviceOrientation] instead, which rotates the pixel
-///    data directly using [rotationDegreesForDeviceOrientation]'s answer
-///    for the very same [DeviceOrientation] this method just read — see
-///    that function's own doc comment for exactly where its rotation
-///    mapping comes from (read directly out of
-///    `camera_android_camerax`'s own source, not guessed) and why it
-///    differs from the 1st attempt's, *and* for why it must strip any
-///    Exif Orientation tag from the file **before** decoding it (`image`'s
-///    own JPEG decoder auto-applies that tag unconditionally on decode —
-///    discovered while building this 2nd fix — so skipping that step
-///    would silently double-rotate every capture that arrives with a
-///    non-trivial Exif tag already set). Other platforms keep using the
-///    original Exif-trusting [normalizePhotoOrientation], since only
-///    Android's capture pipeline was confirmed to need this fix.
-/// 3. Either way, the resulting file has both correct pixels *and* its
-///    Exif Orientation tag reset to Normal — every later reader of this
-///    same path (this screen's own preview, CommentInputScreen's
-///    preview, the eventual upload) sees a single already-upright image
-///    that needs no Exif interpretation at all, ever.
+///    reading). **Unchanged across every attempt so far, including this
+///    one** — this part was never the problem.
+/// 2. [_normalizeInPlace] then calls [normalizePhotoOrientation] — the
+///    original, Exif-*trusting* function, now used for every platform
+///    including Android (previously Android-only platforms routed through
+///    a from-scratch [DeviceOrientation]-based rotation that bypassed
+///    Exif entirely; see below for why that was reverted).
+/// 3. The resulting file has both correct pixels *and* its Exif
+///    Orientation tag reset to Normal (`img.bakeOrientation` bakes
+///    whatever the tag said into the pixels, then clears it) — every
+///    later reader of this same path (this screen's own preview,
+///    CommentInputScreen's preview, the eventual upload, and every other
+///    screen downstream that displays this same file — see the real-
+///    device instructions' own item 8 checklist) sees a single already-
+///    upright image that needs no Exif interpretation at all, ever.
+///
+/// **Why the 2nd attempt's deviceOrientation-only override
+/// ([rotatePhotoForDeviceOrientation], removed) was reverted**: on real
+/// hardware, a landscape capture still came out portrait, rotated 90° —
+/// i.e. that fix's whole *premise* (that [DeviceOrientation] alone,
+/// mapped through a fixed table, decides the correct rotation) was wrong,
+/// not just its specific angle values. That table was derived from
+/// `camera_android_camerax`'s [CameraController.lockCaptureOrientation]
+/// implementation, which maps [DeviceOrientation] to an
+/// `androidx.camera.core.ImageCapture.setTargetRotation` value — but it
+/// **never read the camera's own sensor mounting angle**
+/// ([CameraDescription.sensorOrientation], a real, per-device value CameraX
+/// itself already combines with the target rotation internally when
+/// computing the Exif Orientation it writes) at all. `setTargetRotation`
+/// is CameraX's own documented mechanism specifically for making that
+/// Exif tag correct — [_takePhoto] already calls
+/// [CameraController.lockCaptureOrientation] with it, right before
+/// [CameraController.takePicture], on every capture. Discarding the
+/// resulting Exif tag and recomputing our own rotation from
+/// [DeviceOrientation] alone — never consulting `sensorOrientation` —
+/// duplicated (and, on real hardware, got wrong) a computation CameraX had
+/// already done correctly. This fix instead trusts that tag again and
+/// only bakes it, exactly as [normalizePhotoOrientation] always did for
+/// non-Android platforms.
+///
+/// **This still needs real-device confirmation** — see
+/// [_logCaptureDiagnostics] below, added specifically so that if this
+/// hypothesis is *also* wrong for some device, the real
+/// deviceOrientation/sensorOrientation/raw-JPEG-Exif data needed to
+/// diagnose the true cause is already in the device's log output, rather
+/// than requiring yet another guess-and-ship round.
 ///
 /// Real-device fix (full-screen layout pass): this is a *layout-only*
 /// change — nothing above (deviceOrientation / lockCaptureOrientation /
@@ -186,31 +207,79 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     }
   }
 
-  /// Physically rotates [file]'s pixel data in place and resets its Exif
-  /// Orientation tag to Normal — see the class doc comment above — so
+  /// Bakes [file]'s own Exif Orientation tag into its pixel data and
+  /// resets that tag to Normal — see the class doc comment above — so
   /// every later read of this same path (this screen's own preview
   /// below, CommentInputScreen's preview, the eventual upload) sees a
   /// single already-upright image, with no Exif Orientation left for
   /// anything downstream to separately interpret.
   ///
-  /// On Android, [capturedOrientation] alone (never the file's own Exif
-  /// tag) decides the rotation — see [rotatePhotoForDeviceOrientation].
-  /// Other platforms keep using the original Exif-trusting
-  /// [normalizePhotoOrientation], since only Android's capture pipeline
-  /// was confirmed to need this fix.
+  /// [capturedOrientation] is no longer used to decide the rotation
+  /// itself (see the class doc comment for why) — it's kept here purely
+  /// to label [_logCaptureDiagnostics]' output with what the device's own
+  /// physical orientation was at the exact moment of capture.
   ///
-  /// A failure here (corrupt/unreadable bytes) just leaves the file
-  /// exactly as the camera produced it rather than blocking the capture
-  /// over it.
+  /// A failure in the actual normalize step (corrupt/unreadable bytes)
+  /// just leaves the file exactly as the camera produced it rather than
+  /// blocking the capture over it; [_logCaptureDiagnostics] itself can
+  /// never throw at all (see its own doc comment) so it's never part of
+  /// what this try/catch needs to guard against.
   Future<void> _normalizeInPlace(File file, DeviceOrientation capturedOrientation) async {
     try {
       final original = await file.readAsBytes();
-      final normalized = defaultTargetPlatform == TargetPlatform.android
-          ? rotatePhotoForDeviceOrientation(original, capturedOrientation)
-          : normalizePhotoOrientation(original);
+      _logCaptureDiagnostics(
+        stage: 'raw capture (before normalizePhotoOrientation)',
+        bytes: original,
+        capturedOrientation: capturedOrientation,
+      );
+
+      final normalized = normalizePhotoOrientation(original);
+      _logCaptureDiagnostics(
+        stage: 'after normalizePhotoOrientation (final, saved)',
+        bytes: normalized,
+        capturedOrientation: capturedOrientation,
+      );
+
       await file.writeAsBytes(normalized);
     } catch (_) {
       // Leave the file untouched.
+    }
+  }
+
+  /// Real-device fix (3rd attempt) — instructions item 3: logs
+  /// deviceOrientation, the camera's own sensor mounting angle
+  /// ([CameraDescription.sensorOrientation], read straight off the
+  /// controller actually in use — never assumed to be the commonly-seen
+  /// 90°), and the JPEG's own raw width/height/Exif Orientation (via
+  /// [describeJpegForDebugLog] — see its own doc comment for exactly what
+  /// "raw" means here) for [bytes] at [stage]. Called once for the file
+  /// exactly as the camera produced it and again for the final,
+  /// already-normalized file actually saved, so a device's real capture
+  /// behavior — and whether this fix's own Exif-trusting hypothesis
+  /// actually held for it — is fully visible in `flutter logs`/Logcat
+  /// without needing to re-instrument anything.
+  ///
+  /// [kDebugMode]-gated so this never runs (and never pays the extra
+  /// decode cost) in a release build; visible via the standard
+  /// `dart:developer` log channel under the `KOTONOHA.camera` name.
+  /// Wrapped in its own try/catch — a logging helper observing the
+  /// capture flow must never be able to break it.
+  void _logCaptureDiagnostics({
+    required String stage,
+    required Uint8List bytes,
+    required DeviceOrientation capturedOrientation,
+  }) {
+    if (!kDebugMode) return;
+    try {
+      final sensorOrientation = _controller?.description.sensorOrientation;
+      developer.log(
+        '[$stage] deviceOrientation=$capturedOrientation '
+        'sensorOrientation=$sensorOrientation '
+        '${describeJpegForDebugLog(bytes)}',
+        name: 'KOTONOHA.camera',
+      );
+    } catch (_) {
+      // A logging failure must never surface as a capture failure.
     }
   }
 

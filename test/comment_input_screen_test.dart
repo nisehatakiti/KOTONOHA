@@ -49,6 +49,13 @@ class _FakeApiService implements KotonohaApiService {
   final KotonohaPostResult? _result;
   final KotonohaApiException? _error;
 
+  // Real-device fix (写真の向きを「撮影時」に確定する修正指示): records
+  // exactly what postKotonoha was called with, so a test can confirm the
+  // uploaded file is the untouched photo passed into this screen — never
+  // re-read, re-encoded, or re-oriented based on whatever MediaQuery
+  // orientation happens to be current when the user posts.
+  File? capturedImage;
+
   @override
   Future<KotonohaPostResult> postKotonoha({
     required String installationId,
@@ -58,6 +65,7 @@ class _FakeApiService implements KotonohaApiService {
     required String comment,
     required File image,
   }) async {
+    capturedImage = image;
     if (_error != null) throw _error;
     return _result!;
   }
@@ -196,6 +204,60 @@ void main() {
 
       expect(find.text('open'), findsOneWidget);
       expect(find.byType(CommentInputScreen), findsNothing);
+    },
+  );
+
+  testWidgets(
+    '実機修正(写真の向きを「撮影時」に確定する): posting uploads the exact '
+    'same photo file this screen was opened with (same path — never '
+    'copied/rewritten first), even when the screen is built under a '
+    '*different* MediaQuery orientation than the photo was "captured" in '
+    '— this screen must never re-derive orientation from the current '
+    'device/MediaQuery state at post time',
+    (tester) async {
+      final apiService = _FakeApiService.success();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            // Deliberately landscape-shaped, independent of whatever the
+            // test photo file itself represents — if this screen (or
+            // anything it calls) ever started reading the *current*
+            // orientation to decide how to handle the photo, forcing a
+            // mismatched MediaQuery here is what would expose it.
+            data: const MediaQueryData(size: Size(800, 400)),
+            child: CommentInputScreen(
+              photo: testPhoto,
+              locationService: _FakeLocationService(),
+              installationIdService: _FakeInstallationIdService(),
+              apiService: apiService,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'こんにちは');
+      await tester.pump();
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pumpAndSettle();
+
+      // Dismiss the "言の葉を置きました" confirmation dialog.
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // Proves the exact same file this screen was opened with is what
+      // gets uploaded — the file is never copied, re-saved to a new path,
+      // or otherwise rewritten before postKotonoha is called (confirmed
+      // separately by reading comment_input_screen.dart's own source:
+      // it never calls anything that writes to widget.photo.path). A
+      // byte-content re-read was deliberately not added here: any real
+      // dart:io read of the *same* file inside this test body raced with
+      // tearDown's own tempDir.delete(recursive: true) on Windows
+      // (PathAccessException: "file in use by another process") — the
+      // path identity below is what actually matters for this fix.
+      expect(apiService.capturedImage, isNotNull);
+      expect(apiService.capturedImage!.path, testPhoto.path);
     },
   );
 

@@ -97,7 +97,7 @@ import 'comment_input_screen.dart';
 ///   [describeJpegForDebugLog]) — actual pixel dimensions, not just the
 ///   Exif tag, exactly per instructions item 4 ("Exifだけを見るのではな
 ///   く、width×heightを実際に確認する").
-/// - [_saveDebugCopy] additionally writes the `[RAW]` and
+/// - [_logAndSaveDebugCopy] additionally writes the `[RAW]` and
 ///   `[AFTER NORMALIZE]` bytes to actual files under this app's external
 ///   files directory (`/Android/data/com.nisehatakiti.kotonoha/files/
 ///   kotonoha_debug/`) — retrievable via `adb pull` (the exact path is
@@ -108,6 +108,26 @@ import 'comment_input_screen.dart';
 /// All of this is [kDebugMode]-gated and wrapped so a logging/debug-file
 /// failure can never surface as a capture failure — see each function's
 /// own doc comment.
+///
+/// Real-device fix — audit ("写真の向きを「撮影時」に確定する修正指示"):
+/// confirmed by reading every file downstream of a capture
+/// (comment_input_screen.dart, [normalizePhotoOrientation] itself, and
+/// `KotonohaApiService.postKotonoha`) that **[controller.value.
+/// deviceOrientation] is read exactly once, right here in [_takePhoto], as
+/// the `final orientation` local right before [CameraController.
+/// lockCaptureOrientation]** — nothing downstream re-reads it or
+/// `MediaQuery.of(context).orientation`. Photo orientation is therefore
+/// already a property of *this exact moment* (whatever the CameraX-
+/// written Exif tag ends up being, baked in synchronously inside this
+/// same `_takePhoto` call before `setState` ever shows the review screen
+/// — see [_normalizeInPlace]), never of the device's orientation when the
+/// user later types a comment or presses "置く": comment_input_screen.dart's
+/// `CommentInputScreen` only ever displays and uploads `File(photo.path)`
+/// completely as-is (`Image.file(..., fit: BoxFit.contain)` for display —
+/// a pure letterboxing choice, not a pixel rewrite — and
+/// `http.MultipartFile.fromPath('image', image.path)` for the upload, in
+/// `KotonohaApiService.postKotonoha`), with no [DeviceOrientation]/
+/// `MediaQuery` reference anywhere in either file.
 ///
 /// Real-device fix (full-screen layout pass): this is a *layout-only*
 /// change — nothing above (deviceOrientation / lockCaptureOrientation /

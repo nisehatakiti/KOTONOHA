@@ -114,34 +114,31 @@ void main() {
     );
   });
 
-  // Real-device fix: 現在地マーカー + 「地図を更新」の直接実行経路
-  // (refreshCurrentLocation)。GoogleMapController はテスト環境では
-  // 生成されない(このファイル自身の冒頭コメント参照)ため、カメラ移動・
-  // nearby再取得そのものはここでは検証できない — マーカーの状態反映
-  // (setState経由、controllerに依存しない部分)のみを検証する。
-  group('current-location marker', () {
+  // Real-device fix (2nd round): a current-location marker was added in an
+  // earlier round, then explicitly removed again — no pin of any kind may
+  // ever represent "現在地" on the map. GoogleMapController isn't created in
+  // this test environment (see this file's own header comment), so
+  // refreshCurrentLocation's camera-move/nearby-refetch behavior itself
+  // can't be exercised here — only that no marker ever appears, and that
+  // calling refreshCurrentLocation (with no live controller) doesn't throw.
+  group('no current-location marker (real-device fix, removed again)', () {
     const initialLocation = LocationPoint(latitude: 35.0, longitude: 139.0, accuracy: 5);
     const updatedLocation = LocationPoint(latitude: 36.0, longitude: 140.0, accuracy: 5);
 
-    Marker? findCurrentLocationMarker(WidgetTester tester) {
+    bool hasCurrentLocationMarker(WidgetTester tester) {
       final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
-      for (final marker in map.markers) {
-        if (marker.markerId == const MarkerId('current_location')) return marker;
-      }
-      return null;
+      return map.markers.any((m) => m.markerId == const MarkerId('current_location'));
     }
 
-    testWidgets('no current-location marker before any location is known', (
-      tester,
-    ) async {
+    testWidgets('no marker before any location is known', (tester) async {
       await tester.pumpWidget(_wrap(const KotonohaMap()));
 
-      expect(findCurrentLocationMarker(tester), isNull);
+      expect(hasCurrentLocationMarker(tester), isFalse);
     });
 
     testWidgets(
-      'a marker appears at the right position once the very first '
-      'location arrives (app launch: null -> non-null)',
+      'still no marker once the very first location arrives (app launch: '
+      'null -> non-null)',
       (tester) async {
         // Mirrors HomeScreen's own real sequence: KotonohaMap is first
         // built with no location at all, then rebuilt once the initial
@@ -150,48 +147,25 @@ void main() {
         await tester.pumpWidget(_wrap(const KotonohaMap()));
         await tester.pumpWidget(_wrap(const KotonohaMap(currentLocation: initialLocation)));
 
-        final marker = findCurrentLocationMarker(tester);
-        expect(marker, isNotNull);
-        expect(marker!.position, const LatLng(35.0, 139.0));
+        expect(hasCurrentLocationMarker(tester), isFalse);
       },
     );
 
     testWidgets(
-      'refreshCurrentLocation (the "地図を更新" direct call path) moves '
-      'the marker to the new location',
+      'refreshCurrentLocation (the "地図を更新" direct call path) still '
+      'draws no marker, and does not throw with no live controller',
       (tester) async {
         final mapKey = GlobalKey<KotonohaMapState>();
         await tester.pumpWidget(_wrap(KotonohaMap(key: mapKey)));
         await tester.pumpWidget(
           _wrap(KotonohaMap(key: mapKey, currentLocation: initialLocation)),
         );
-        expect(findCurrentLocationMarker(tester)!.position, const LatLng(35.0, 139.0));
+        expect(hasCurrentLocationMarker(tester), isFalse);
 
         await mapKey.currentState!.refreshCurrentLocation(updatedLocation);
         await tester.pump();
 
-        final marker = findCurrentLocationMarker(tester);
-        expect(marker, isNotNull);
-        expect(marker!.position, const LatLng(36.0, 140.0));
-      },
-    );
-
-    testWidgets(
-      'the current-location marker is a distinct marker id from every '
-      '言の葉 leaf marker (never confused with a KotonohaPin)',
-      (tester) async {
-        await tester.pumpWidget(_wrap(const KotonohaMap()));
-        await tester.pumpWidget(_wrap(const KotonohaMap(currentLocation: initialLocation)));
-
-        final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
-        final ids = map.markers.map((m) => m.markerId.value).toSet();
-        expect(ids, contains('current_location'));
-        // No pins are fetched in this environment (no live controller),
-        // so the only marker present is the current-location one — this
-        // just guards against it ever accidentally reusing a plain/empty
-        // id that a real Root pin (a numeric-string id) could collide
-        // with.
-        expect(const MarkerId('current_location').value, isNot(matches(RegExp(r'^\d+$'))));
+        expect(hasCurrentLocationMarker(tester), isFalse);
       },
     );
   });

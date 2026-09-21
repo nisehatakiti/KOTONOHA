@@ -17,9 +17,9 @@ import 'comment_input_screen.dart';
 /// passed forward in-memory until a later STEP wires up the actual
 /// POST /api/kotonoha upload (docs/api.md section 5).
 ///
-/// Real-device fix: no 縦/横 choice, and no manual rotate control, is ever
-/// shown to the user. Orientation is corrected automatically and
-/// unconditionally at capture time:
+/// Real-device fix (2nd attempt — see below): no 縦/横 choice, and no
+/// manual rotate control, is ever shown to the user. Orientation is
+/// corrected automatically and unconditionally at capture time:
 ///
 /// 1. [_takePhoto] reads the device's own physical orientation at the
 ///    exact moment of the shutter press ([CameraController.value.
@@ -32,36 +32,32 @@ import 'comment_input_screen.dart';
 ///    ([CameraController.unlockCaptureOrientation], in a `finally` block
 ///    so a subsequent "撮り直す" capture isn't left pinned to a stale
 ///    reading).
-/// 2. **Real-device fix (2)**: the lock above does *not*, by itself,
-///    reliably make the resulting file's own Exif Orientation tag
-///    correct on Android — confirmed by reading the `camera` package's
-///    own source (`camera_preview.dart`): on Android specifically, the
-///    plugin's *live preview* is known to come out of the sensor in a
-///    fixed, device-orientation-independent buffer orientation, which is
-///    why `CameraPreview` itself wraps the preview texture in a
-///    `RotatedBox` — using an explicit `deviceOrientation`-keyed
-///    quarter-turn table (`portraitUp`→0, `landscapeRight`→1,
-///    `portraitDown`→2, `landscapeLeft`→3), not Exif — to correct it.
-///    The still-capture pipeline shares that same sensor buffer, so this
-///    screen mirrors that *exact, already-proven-correct* table
-///    ([_exifOrientationForDeviceOrientation]) to decide the Exif
-///    Orientation value to bake on Android, instead of trusting whatever
-///    the camera plugin itself wrote. This is what actually fixes
-///    "横向きで撮影すると縦向きになる": trusting the file's own
-///    (unreliable, on Android) Exif tag was the root cause. iOS's
-///    AVFoundation is a different, separately-implemented capture
-///    pipeline that does reliably Exif-tag its own output, so this
-///    override only applies on Android
-///    ([_normalizeInPlace]/[defaultTargetPlatform]) — other platforms
-///    still use the original Exif-trusting [normalizePhotoOrientation].
-/// 3. Either way, the resulting pixels are baked and the Exif tag itself
-///    is reset to Normal via the *same* `image`-package mechanism
-///    ([img.bakeOrientation], inside [normalizePhotoOrientation] /
-///    [normalizePhotoOrientationWithOverride] — no separate/duplicate
-///    rotation implementation exists here). Every later reader of this
-///    same file — this screen's own preview, CommentInputScreen's
-///    preview, the eventual upload — sees a single already-upright image
-///    with no Exif Orientation left to separately interpret.
+/// 2. **This screen never reads, trusts, or bakes the resulting file's
+///    own Exif Orientation tag at all**, on any platform. The 1st fix
+///    attempt still routed through Exif (computing an Exif Orientation
+///    value from [DeviceOrientation] and letting `image`'s own
+///    `bakeOrientation` interpret it) and was confirmed wrong on real
+///    Android hardware — landscape captures still came out portrait. On
+///    Android, [_normalizeInPlace] now calls
+///    [rotatePhotoForDeviceOrientation] instead, which rotates the pixel
+///    data directly using [rotationDegreesForDeviceOrientation]'s answer
+///    for the very same [DeviceOrientation] this method just read — see
+///    that function's own doc comment for exactly where its rotation
+///    mapping comes from (read directly out of
+///    `camera_android_camerax`'s own source, not guessed) and why it
+///    differs from the 1st attempt's, *and* for why it must strip any
+///    Exif Orientation tag from the file **before** decoding it (`image`'s
+///    own JPEG decoder auto-applies that tag unconditionally on decode —
+///    discovered while building this 2nd fix — so skipping that step
+///    would silently double-rotate every capture that arrives with a
+///    non-trivial Exif tag already set). Other platforms keep using the
+///    original Exif-trusting [normalizePhotoOrientation], since only
+///    Android's capture pipeline was confirmed to need this fix.
+/// 3. Either way, the resulting file has both correct pixels *and* its
+///    Exif Orientation tag reset to Normal — every later reader of this
+///    same path (this screen's own preview, CommentInputScreen's
+///    preview, the eventual upload) sees a single already-upright image
+///    that needs no Exif interpretation at all, ever.
 class CameraCaptureScreen extends StatefulWidget {
   const CameraCaptureScreen({super.key});
 
@@ -162,11 +158,11 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   /// single already-upright image, with no Exif Orientation left for
   /// anything downstream to separately interpret.
   ///
-  /// On Android, [capturedOrientation] (not the file's own Exif tag) is
-  /// what actually decides the rotation — see
-  /// [_exifOrientationForDeviceOrientation]. Other platforms keep using
-  /// the original Exif-trusting [normalizePhotoOrientation], since only
-  /// Android's capture pipeline was confirmed to need this override.
+  /// On Android, [capturedOrientation] alone (never the file's own Exif
+  /// tag) decides the rotation — see [rotatePhotoForDeviceOrientation].
+  /// Other platforms keep using the original Exif-trusting
+  /// [normalizePhotoOrientation], since only Android's capture pipeline
+  /// was confirmed to need this fix.
   ///
   /// A failure here (corrupt/unreadable bytes) just leaves the file
   /// exactly as the camera produced it rather than blocking the capture
@@ -175,10 +171,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     try {
       final original = await file.readAsBytes();
       final normalized = defaultTargetPlatform == TargetPlatform.android
-          ? normalizePhotoOrientationWithOverride(
-              original,
-              exifOrientationForDeviceOrientation(capturedOrientation),
-            )
+          ? rotatePhotoForDeviceOrientation(original, capturedOrientation)
           : normalizePhotoOrientation(original);
       await file.writeAsBytes(normalized);
     } catch (_) {

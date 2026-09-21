@@ -165,42 +165,31 @@ class _SmallPhoto extends StatelessWidget {
     if (url == null) {
       return Container(color: Colors.grey.shade300);
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.network(
-          url,
-          // 縦横比を維持したまま縮小する — BoxFit.cover was cropping the
-          // photo to fill this header's box; contain only ever shrinks it
-          // uniformly, never stretching or cropping (see the class doc
-          // comment above).
-          fit: BoxFit.contain,
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return Container(
-              color: Colors.grey.shade200,
-              child: const Center(child: CircularProgressIndicator()),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: Colors.grey.shade300,
-            child: Center(
-              child: Icon(Icons.broken_image, size: 32, color: Colors.grey.shade600),
-            ),
-          ),
+    // Real-device fix: the bottom-right zoom_out_map icon that used to sit
+    // over this photo (a "hint" affordance) is removed — tapping the photo
+    // still opens KotonohaDetailScreen exactly as before (see the
+    // GestureDetector this is wrapped in, in KotonohaWordsScreen.build),
+    // only the icon overlay itself is gone.
+    return Image.network(
+      url,
+      // 縦横比を維持したまま縮小する — BoxFit.cover was cropping the
+      // photo to fill this header's box; contain only ever shrinks it
+      // uniformly, never stretching or cropping (see the class doc
+      // comment above).
+      fit: BoxFit.contain,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          color: Colors.grey.shade200,
+          child: const Center(child: CircularProgressIndicator()),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) => Container(
+        color: Colors.grey.shade300,
+        child: Center(
+          child: Icon(Icons.broken_image, size: 32, color: Colors.grey.shade600),
         ),
-        // A quiet affordance hinting the small photo expands on tap.
-        Positioned(
-          right: 8,
-          bottom: 8,
-          child: Icon(
-            Icons.zoom_out_map,
-            color: Colors.white.withValues(alpha: 0.9),
-            size: 20,
-            shadows: const [Shadow(color: Colors.black54, blurRadius: 3)],
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

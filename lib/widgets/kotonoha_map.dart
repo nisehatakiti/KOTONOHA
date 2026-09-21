@@ -26,13 +26,13 @@ import 'leaf_marker_icon.dart';
 /// This widget never starts a location stream/watch of its own, and
 /// deliberately does not use GoogleMap's `myLocationEnabled` flag, since
 /// that turns on the SDK's own continuous location updates — also unwanted
-/// (現在地を継続的に追跡する機能は実装しない, unchanged policy). A single
-/// current-location marker ([MarkerId('current_location')], visually
-/// distinct from every Root-post leaf marker — a plain default Google Maps
-/// pin in a different hue, never the leaf icon) shows where
-/// [currentLocation] last was, but it is only ever *updated* by an
-/// explicit call ([refreshCurrentLocation], or the very first
-/// [currentLocation] this widget ever receives) — never by a stream.
+/// (現在地を継続的に追跡する機能は実装しない, unchanged policy). No
+/// current-location marker/pin is ever shown — only Root-post leaf markers
+/// appear on the map (real-device fix: an earlier round added a dedicated
+/// `MarkerId('current_location')` pin, but it was removed again — see
+/// [_buildMarkers], which no longer draws one). [currentLocation] is used
+/// only to center/zoom the camera and to scope the nearby fetch; it never
+/// drives any marker.
 ///
 /// Real-device fix: "地図を更新" pressed on a real device wasn't
 /// reliably moving the camera or refetching nearby pins, and gave no
@@ -157,16 +157,6 @@ class KotonohaMapState extends State<KotonohaMap> {
   Size? _mapSize;
   bool _leafIconRequested = false;
 
-  /// Drives the current-location marker only — set once on this widget's
-  /// very first [KotonohaMap.currentLocation] (app launch) and again on
-  /// every [refreshCurrentLocation] call ("地図を更新"). Deliberately a
-  /// plain field, not re-derived from [widget.currentLocation] on every
-  /// build: HomeScreen's own `_lastLocation` and this field can briefly
-  /// disagree mid-update (see [refreshCurrentLocation]), and the marker
-  /// should only ever jump when *this widget* has actually processed a
-  /// new location, not on every parent rebuild.
-  LocationPoint? _displayedCurrentLocation;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -206,7 +196,6 @@ class KotonohaMapState extends State<KotonohaMap> {
     // call.
     final location = widget.currentLocation;
     if (location != null && oldWidget.currentLocation == null) {
-      _displayedCurrentLocation = location;
       _moveCameraToInitialRegion(location);
       _fetchNearby(location);
     }
@@ -219,16 +208,15 @@ class KotonohaMapState extends State<KotonohaMap> {
   /// `GlobalKey<KotonohaMapState>`経由でこのメソッドを直接呼ぶ。位置情報の
   /// stream/watchは一切使わない — [location]は呼び出し側が
   /// `LocationService.getCurrentLocation()`で一度だけ取得済みの値を渡す。
+  /// 現在地そのものを示すマーカー/ピンは一切表示しない(real-device fix:
+  /// 一度追加したが再度削除した — [_buildMarkers]参照)。
   ///
-  /// 1. 現在地マーカーの表示位置を更新する。
-  /// 2. カメラを新しい現在地へ移動する(パンのみ — [CameraUpdate.newLatLng]
+  /// 1. カメラを新しい現在地へ移動する(パンのみ — [CameraUpdate.newLatLng]
   ///    は現在のズームレベルを変更しないため、「地図を更新でズームが
   ///    初期値に戻る」問題を再発させない)。
-  /// 3. その現在地を中心にnearby APIを再取得する。
-  /// 4. (選択中の言の葉があれば)ポップアップの画面上位置も再計算する。
+  /// 2. その現在地を中心にnearby APIを再取得する。
+  /// 3. (選択中の言の葉があれば)ポップアップの画面上位置も再計算する。
   Future<void> refreshCurrentLocation(LocationPoint location) async {
-    if (mounted) setState(() => _displayedCurrentLocation = location);
-
     final controller = _controller;
     if (controller != null) {
       await controller.animateCamera(
@@ -454,9 +442,9 @@ class KotonohaMapState extends State<KotonohaMap> {
     widget.onLeafTap?.call(selectedId);
   }
 
-  /// Root-post leaf markers, plus the current-location marker (real-device
-  /// fix — see [refreshCurrentLocation]'s own comment for why one exists
-  /// now). The selected pin (if any) is skipped entirely while its leaf
+  /// Root-post leaf markers only — no current-location marker/pin is ever
+  /// drawn (real-device fix: removed again after an earlier round added
+  /// one). The selected pin (if any) is skipped entirely while its leaf
   /// is open, rather than drawn underneath it (section 6.1: 小さいピンと
   /// 大きい吹き出し葉っぱを同時に表示してはならない) — reappearing the
   /// moment the selection clears.
@@ -481,27 +469,7 @@ class KotonohaMapState extends State<KotonohaMap> {
       );
     }
 
-    final currentLocationMarker = _buildCurrentLocationMarker();
-    if (currentLocationMarker != null) markers.add(currentLocationMarker);
-
     return markers;
-  }
-
-  /// 現在地マーカー — Root投稿の葉っぱマーカー([_leafIcon]、カスタム画像)
-  /// とは明確に区別するため、既定のGoogle Mapsピン(ただし葉っぱとは異なる
-  /// 色相)をそのまま使う。新しいアイコン画像アセットは追加しない。
-  /// [KotonohaMap.onLeafTap]的なタップ処理は持たない(言の葉ではないので
-  /// [_handleMarkerTap]の対象にならない) — 位置を示すだけの存在。
-  Marker? _buildCurrentLocationMarker() {
-    final location = _displayedCurrentLocation;
-    if (location == null) return null;
-
-    return Marker(
-      markerId: const MarkerId('current_location'),
-      position: LatLng(location.latitude, location.longitude),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-      anchor: const Offset(0.5, 0.5),
-    );
   }
 
   @override

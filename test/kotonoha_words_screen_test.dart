@@ -162,6 +162,27 @@ void main() {
   );
 
   testWidgets(
+    '実機修正: the small photo no longer shows a dedicated "拡大" '
+    '(zoom_out_map) icon overlay — only the existing tap-to-expand '
+    'behavior (AC-04, verified separately above) remains',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          KotonohaWordsScreen(
+            item: _item,
+            locationService: _FakeLocationService.success(),
+          ),
+        ),
+      );
+
+      expect(
+        find.byWidgetPredicate((w) => w is Icon && w.icon == Icons.zoom_out_map),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
     'real-device UI pass: shows the same ad banner and leaf-motif '
     'background used on the large-photo KotonohaDetailScreen',
     (tester) async {

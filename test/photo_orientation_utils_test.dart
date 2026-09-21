@@ -186,60 +186,60 @@ void main() {
     });
   });
 
-  group('exifOrientationForDeviceOrientation (real-device fix)', () {
-    // The exact mapping camera_preview.dart's own _getQuarterTurns uses
-    // for its (already-correct, on real devices) live-preview rotation —
-    // see photo_orientation_utils.dart's own doc comment for the source
-    // evidence. Locking this mapping down in a test protects against
-    // silently reintroducing the "横向きで撮影すると縦向きになる" bug via
-    // an unrelated future edit.
-    test('portraitUp -> 1 (Normal, no rotation)', () {
-      expect(exifOrientationForDeviceOrientation(DeviceOrientation.portraitUp), 1);
+  group('rotationDegreesForDeviceOrientation', () {
+    // The mapping read directly out of camera_android_camerax's own
+    // source (_getRotationConstantFromDeviceOrientation) — see
+    // photo_orientation_utils.dart's own doc comment for the full
+    // evidence chain. Locking this mapping down in a test protects
+    // against silently reintroducing the "横向きで撮影すると縦向きになる"
+    // bug via an unrelated future edit. Note this is the OPPOSITE
+    // landscapeLeft/landscapeRight pairing from the 1st (failed) fix
+    // attempt's camera_preview.dart-based table.
+    test('portraitUp -> 0°', () {
+      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.portraitUp), 0);
     });
 
-    test('landscapeRight -> 6 (90° CW)', () {
-      expect(exifOrientationForDeviceOrientation(DeviceOrientation.landscapeRight), 6);
+    test('landscapeLeft -> 90°', () {
+      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.landscapeLeft), 90);
     });
 
-    test('portraitDown -> 3 (180°)', () {
-      expect(exifOrientationForDeviceOrientation(DeviceOrientation.portraitDown), 3);
+    test('portraitDown -> 180°', () {
+      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.portraitDown), 180);
     });
 
-    test('landscapeLeft -> 8 (270° CW / 90° CCW)', () {
-      expect(exifOrientationForDeviceOrientation(DeviceOrientation.landscapeLeft), 8);
+    test('landscapeRight -> 270°', () {
+      expect(rotationDegreesForDeviceOrientation(DeviceOrientation.landscapeRight), 270);
     });
   });
 
-  group('normalizePhotoOrientationWithOverride (real-device fix)', () {
+  group('rotatePhotoForDeviceOrientation (real-device fix, 2nd attempt)', () {
     // Mirrors normalizePhotoOrientation's own directional test group
     // above, but exercises the actual capture-time code path: the
     // *source* bytes carry no Exif Orientation tag at all (simulating
-    // Android's camera plugin, which this fix exists because of — see
-    // the doc comment on [normalizePhotoOrientationWithOverride] — not
-    // reliably writing one), and the desired orientation is supplied
-    // directly, exactly as camera_capture_screen.dart itself does via
-    // [exifOrientationForDeviceOrientation].
+    // Android's camera plugin), and — unlike the 1st (failed) attempt's
+    // normalizePhotoOrientationWithOverride — the rotation is applied
+    // directly to the pixels via img.copyRotate, with no Exif value ever
+    // written or read as an intermediate step.
     for (final testCase in [
       // (撮影時のDeviceOrientation, 対応する回転角(度, 時計回り), シナリオ名)
       (DeviceOrientation.portraitUp, 0, '縦持ち撮影 — 回転なし'),
-      (DeviceOrientation.landscapeRight, 90, '右90度横持ち撮影 — 90度回転'),
-      (DeviceOrientation.landscapeLeft, -90, '左90度横持ち撮影 — -90度(270度)回転'),
+      (DeviceOrientation.landscapeLeft, 90, '左90度横持ち撮影 — 90度回転'),
+      (DeviceOrientation.landscapeRight, 270, '右90度横持ち撮影 — 270度(-90度)回転'),
       (DeviceOrientation.portraitDown, 180, '180度(逆さ)撮影 — 180度回転'),
     ]) {
       final (deviceOrientation, angle, name) = testCase;
       test(
         '$name: Exifタグなしの生バッファから、deviceOrientationだけを根拠に'
-        '正しい向き・Exif正常状態に補正できる',
+        'ピクセルそのものを正しい向きに回転できる(Exifには一切依存しない)',
         () {
           final source = _quadrantImage(width: 32, height: 16);
           // No Exif Orientation tag at all on the source bytes — this is
-          // the whole point of the override: nothing here is read from
-          // (untrustworthy) Exif.
+          // the whole point: nothing here is read from (untrustworthy,
+          // and on Android sometimes simply absent) Exif.
           final bytes = _jpegWithOrientation(source, null);
 
-          final exifOrientation = exifOrientationForDeviceOrientation(deviceOrientation);
-          final normalized = normalizePhotoOrientationWithOverride(bytes, exifOrientation);
-          final decoded = img.decodeImage(normalized)!;
+          final rotated = rotatePhotoForDeviceOrientation(bytes, deviceOrientation);
+          final decoded = img.decodeImage(rotated)!;
 
           final expected = img.copyRotate(source, angle: angle);
           expect(decoded.width, expected.width, reason: 'width');
@@ -255,16 +255,50 @@ void main() {
           expect(
             decoded.exif.imageIfd.hasOrientation,
             isFalse,
-            reason: 'Exif Orientation tag must be cleared after baking',
+            reason: 'Exif Orientation tag must be cleared on the output, not '
+                'just left unused',
           );
         },
       );
     }
 
+    test(
+      'a source file that already carries a (misleading) Exif Orientation '
+      'tag is rotated purely from deviceOrientation — the tag is never '
+      'read at all, so it cannot skew the result',
+      () {
+        final source = _quadrantImage(width: 32, height: 16);
+        // Deliberately set a "wrong"/unrelated Exif Orientation tag —
+        // this function must produce exactly the same pixels as the
+        // no-Exif-tag case above for the same deviceOrientation.
+        final bytes = _jpegWithOrientation(source, 6);
+
+        final rotated = rotatePhotoForDeviceOrientation(
+          bytes,
+          DeviceOrientation.landscapeLeft,
+        );
+        final decoded = img.decodeImage(rotated)!;
+        final expected = img.copyRotate(source, angle: 90);
+
+        expect(decoded.width, expected.width);
+        expect(decoded.height, expected.height);
+        for (final corner in _corners(decoded.width, decoded.height)) {
+          final actual = decoded.getPixel(corner.$1, corner.$2);
+          final want = expected.getPixel(corner.$1, corner.$2);
+          expect(actual.r, closeTo(want.r, 4), reason: 'corner $corner red');
+          expect(actual.g, closeTo(want.g, 4), reason: 'corner $corner green');
+          expect(actual.b, closeTo(want.b, 4), reason: 'corner $corner blue');
+        }
+      },
+    );
+
     test('bytes that can\'t be decoded as an image are returned unchanged, '
         'never crash', () {
       final garbage = Uint8List.fromList([0, 1, 2, 3, 4, 5]);
-      expect(normalizePhotoOrientationWithOverride(garbage, 6), same(garbage));
+      expect(
+        rotatePhotoForDeviceOrientation(garbage, DeviceOrientation.landscapeLeft),
+        same(garbage),
+      );
     });
   });
 }

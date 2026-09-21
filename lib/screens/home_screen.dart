@@ -332,7 +332,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _isFetchingLocation ? null : _onUpdateMap,
+                      // Real-device fix: disabled while a leaf popup is open
+                      // (_selectedId != null) — pressing either button while
+                      // reading the popup made no sense and could move the
+                      // map/camera out from under it. The popup's own
+                      // close action (tap-outside / onMapTap ->
+                      // _clearSelection) is unaffected by this and stays
+                      // usable throughout; once it clears, these buttons
+                      // re-enable automatically since disabling is derived
+                      // straight from _selectedId on every build, not a
+                      // separate flag to remember to reset.
+                      onPressed: _selectedId != null || _isFetchingLocation
+                          ? null
+                          : _onUpdateMap,
                       child: _isFetchingLocation
                           ? const SizedBox(
                               width: 16,
@@ -345,7 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _onPlaceKotonoha,
+                      onPressed: _selectedId != null ? null : _onPlaceKotonoha,
                       child: const Text('言の葉を置く'),
                     ),
                   ),

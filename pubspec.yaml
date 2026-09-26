@@ -66,6 +66,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -126,3 +127,20 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# 画像アセット置換: Android launcher icon, generated via
+# `dart run flutter_launcher_icons` from the two composites tool/
+# process_assets.dart produces (assets/icons/app_icon_legacy.png,
+# assets/icons/app_icon_foreground.png — themselves derived from
+# assets/design/a_high_quality_app_icon_style_illustration_on_a_tr.png).
+# android_adaptive_icon_background is a plain white layer behind the
+# transparent foreground artwork — Android's own Adaptive Icon system,
+# unrelated to the source PNG's own (already-transparent, verified via
+# tool/process_assets.dart) background. ios/other platforms intentionally
+# left untouched — this pass is Android-only.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icons/app_icon_legacy.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icons/app_icon_foreground.png"

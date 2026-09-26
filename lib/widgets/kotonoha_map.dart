@@ -469,6 +469,17 @@ class KotonohaMapState extends State<KotonohaMap> {
           icon:
               _leafIcon ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          // 画像アセット置換 (real-device fix): the marker artwork changed
+          // from a standing leaf (stem tip at the very bottom of the
+          // crop — Marker's own default bottom-center anchor already
+          // matched it) to a leaf lying flat on a soft ground shadow, so
+          // the point that should mark [pin]'s actual coordinate is now
+          // the center of that leaf-and-shadow group, not its bottom
+          // edge — a bottom anchor would read as "the ground shadow's
+          // lower rim is the pin", noticeably offset from where the leaf
+          // itself actually sits. See leaf_marker_icon.dart's own doc
+          // comment.
+          anchor: const Offset(0.5, 0.5),
           // didUpdateWidget picks up the resulting selectedId change (once
           // HomeScreen's setState propagates back down) and positions the
           // popup then — calling _updatePopupPosition() here directly

@@ -293,17 +293,26 @@ class _HomeScreenState extends State<HomeScreen> {
     // post's own data, and no new map pin is ever added for it.
   }
 
-  void _onPlaceKotonoha() {
-    // Full flow (docs/ui.md section 3): re-fetch current location -> update
-    // map -> check posting conditions -> open in-app camera -> capture ->
-    // confirm -> enter comment (<=50 chars) -> compress -> POST
-    // /api/kotonoha. This STEP only implements the camera capture and
-    // comment entry UI (CameraCaptureScreen -> CommentInputScreen); the
-    // pre-capture location re-fetch and the actual upload are added
-    // together with the POST in a later STEP.
-    Navigator.of(
+  /// Full flow (docs/ui.md section 3): re-fetch current location -> update
+  /// map -> check posting conditions -> open in-app camera -> capture ->
+  /// confirm -> enter comment (<=50 chars) -> compress -> POST
+  /// /api/kotonoha.
+  ///
+  /// Real-device fix: a successful post (CameraCaptureScreen forwards
+  /// CommentInputScreen's own `Navigator.pop(true)` one more step up —
+  /// see that screen's own `_next()`) now refreshes the map exactly as
+  /// pressing "地図を更新" would ([_onUpdateMap]: re-fetches the current
+  /// location, pans the camera there, re-fetches nearby pins), so the
+  /// leaf the user just placed appears without an extra manual tap.
+  /// Backing out of the camera flow without posting (any other pop
+  /// result) leaves the map untouched.
+  Future<void> _onPlaceKotonoha() async {
+    final posted = await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const CameraCaptureScreen()));
+    ).push<bool>(MaterialPageRoute(builder: (_) => const CameraCaptureScreen()));
+    if (posted == true && mounted) {
+      await _onUpdateMap();
+    }
   }
 
   @override

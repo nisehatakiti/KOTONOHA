@@ -380,12 +380,21 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     setState(() => _capturedPhoto = null);
   }
 
-  void _next() {
+  /// Real-device fix: 言の葉を置いた後、地図が自動的に更新されて自分が
+  /// 置いた言の葉が見えるようにする — [CommentInputScreen] は投稿成功時
+  /// に `Navigator.pop(true)` するので、それをそのまま[HomeScreen]まで
+  /// 転送する(KotonohaWordsScreen._openPhotoが「繋ぐ」成功時のtrueを
+  /// KotonohaDetailScreenからさらに上へ転送しているのと同じパターン)。
+  /// キャンセル(戻る操作)時は`null`のまま返るので、地図の更新は起きない。
+  Future<void> _next() async {
     final photo = _capturedPhoto;
     if (photo == null) return;
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => CommentInputScreen(photo: photo)));
+    final posted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => CommentInputScreen(photo: photo)),
+    );
+    if (posted == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   @override

@@ -208,6 +208,55 @@ void main() {
   );
 
   testWidgets(
+    '実機修正(投稿後に地図を自動更新する): a successful post pops with '
+    '`true` specifically (not just "the screen closed") — '
+    'CameraCaptureScreen and HomeScreen both rely on this exact value to '
+    'know whether to refresh the map afterward',
+    (tester) async {
+      bool? pushResult;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    pushResult = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => CommentInputScreen(
+                          photo: testPhoto,
+                          locationService: _FakeLocationService(),
+                          installationIdService: _FakeInstallationIdService(),
+                          apiService: _FakeApiService.success(),
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'こんにちは');
+      await tester.pump();
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(pushResult, isTrue);
+    },
+  );
+
+  testWidgets(
     '実機修正(写真の向きを「撮影時」に確定する): posting uploads the exact '
     'same photo file this screen was opened with (same path — never '
     'copied/rewritten first), even when the screen is built under a '

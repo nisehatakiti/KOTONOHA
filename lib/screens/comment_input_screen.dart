@@ -105,7 +105,14 @@ class _CommentInputScreenState extends State<CommentInputScreen> {
       ),
     );
     if (!mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    // Real-device fix: pops with `true` (rather than popUntil(isFirst))
+    // so CameraCaptureScreen (which pushed this screen) can forward the
+    // "posted successfully" signal one more step up to HomeScreen, which
+    // then refreshes the map so the just-placed leaf becomes visible
+    // without an extra manual "地図を更新" tap — see
+    // camera_capture_screen.dart's own _next() and home_screen.dart's
+    // _onPlaceKotonoha().
+    Navigator.of(context).pop(true);
   }
 
   @override

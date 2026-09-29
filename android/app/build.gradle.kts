@@ -53,6 +53,19 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Real-device fix: R8 minification turned out to be enabled by
+            // this AGP version's own default even without this project
+            // ever setting isMinifyEnabled explicitly — the release build
+            // crashed on launch until proguard-rules.pro's Room/WorkManager
+            // keep rules were added (see that file's own comment for the
+            // full logcat-confirmed root cause). Explicitly declaring both
+            // here now, rather than leaving it implicit, so the proguard
+            // file's keep rules are actually applied.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

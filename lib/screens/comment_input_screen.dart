@@ -95,7 +95,6 @@ class _CommentInputScreenState extends State<CommentInputScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('言の葉を置きました'),
-        content: Text('id: ${result!.id}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),

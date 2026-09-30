@@ -3,20 +3,20 @@ import 'package:flutter/material.dart';
 import '../models/kotonoha_item.dart';
 import '../models/kotonoha_root_detail.dart';
 import '../services/location_service.dart';
+import '../utils/distance_utils.dart';
 import '../utils/kotonoha_format.dart';
 import '../widgets/ad_banner.dart';
 import '../widgets/leaf_decorated_section.dart';
+import 'connect_comment_input_screen.dart';
 import 'kotonoha_detail_screen.dart';
 
 /// The screen reached via "言の葉をひらく" (real-device UI pass) — a
 /// compact "words" view: [item]'s own photo shown small and pinned at the
 /// top, with its comment ("最初の言葉") and every one of [connectedItems]
-/// listed below it in a scrollable area. Tapping the small photo is what
-/// leads to the *previous* "言の葉をひらく" destination —
-/// [KotonohaDetailScreen], entirely unchanged — now reached one tap
-/// deeper rather than being the immediate destination itself: 「現在の画
-/// 面を『写真タップ後の状態』として利用する」— this screen is new, but
-/// KotonohaDetailScreen itself was not rewritten to build it.
+/// listed below it in a scrollable area. Tapping the small photo still
+/// leads to the large-photo [KotonohaDetailScreen] (entirely unchanged),
+/// but that is no longer the only way to reach "繋ぐ" here — see the
+/// real-device fix note below.
 ///
 /// AC-01/02/03: the photo sits in its own fixed-size header — roughly
 /// half of the screen's available height (an Expanded flex-1 sibling of
@@ -33,7 +33,20 @@ import 'kotonoha_detail_screen.dart';
 /// for the "元画像の縦横比を維持する" requirement; contain only ever
 /// shrinks the whole image uniformly to fit inside that box, letterboxing
 /// rather than cropping — the entire photo is always visible.
-class KotonohaWordsScreen extends StatelessWidget {
+///
+/// Real-device fix: this screen used to have no "繋ぐ" entry point of its
+/// own — reaching it required tapping the small photo above (a plain
+/// [GestureDetector] with no visual affordance, since the earlier
+/// zoom_out_map icon overlay was removed) to open KotonohaDetailScreen,
+/// where "繋ぐ" actually lived. On a real device this made "繋ぐ" appear
+/// to not exist at all — confirmed by tracing the navigation graph, not
+/// guessed. This screen now measures the distance to [item] itself
+/// (mirroring KotonohaDetailScreen's own [_measureDistance]/`canConnect`
+/// logic exactly, same 5m threshold) and shows its own "繋ぐ" button
+/// directly below the words list, so it never depends on the user
+/// discovering the photo tap. The photo-tap path to KotonohaDetailScreen
+/// is left entirely unchanged.
+class KotonohaWordsScreen extends StatefulWidget {
   const KotonohaWordsScreen({
     super.key,
     required this.item,
@@ -51,16 +64,77 @@ class KotonohaWordsScreen extends StatelessWidget {
   /// of them.
   final List<KotonohaConnection> connectedItems;
 
-  /// Forwarded to [KotonohaDetailScreen] when the photo is tapped —
-  /// injectable so widget tests can supply a fake instead of hitting real
-  /// platform plugins; defaults to the real service otherwise (the same
-  /// pattern KotonohaDetailScreen itself already uses).
+  /// Used both for this screen's own distance measurement (real-device
+  /// fix) and forwarded to [KotonohaDetailScreen] when the photo is
+  /// tapped — injectable so widget tests can supply a fake instead of
+  /// hitting real platform plugins; defaults to the real service
+  /// otherwise (the same pattern KotonohaDetailScreen itself already
+  /// uses).
   final LocationService? locationService;
+
+  @override
+  State<KotonohaWordsScreen> createState() => _KotonohaWordsScreenState();
+}
+
+class _KotonohaWordsScreenState extends State<KotonohaWordsScreen> {
+  late final _locationService = widget.locationService ?? LocationService();
+
+  double? _distanceMeters;
+  String? _distanceErrorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _measureDistance();
+  }
+
+  // Mirrors KotonohaDetailScreen._measureDistance exactly (same service,
+  // same calculation, same 5m threshold via classifyDistanceState) — this
+  // screen's own "繋ぐ" button needs the identical gating logic, not a
+  // relaxed or stricter copy of it.
+  Future<void> _measureDistance() async {
+    try {
+      final current = await _locationService.getCurrentLocation();
+      final meters = calculateDistanceMeters(
+        startLatitude: current.latitude,
+        startLongitude: current.longitude,
+        endLatitude: widget.item.latitude,
+        endLongitude: widget.item.longitude,
+      );
+      if (!mounted) return;
+      setState(() => _distanceMeters = meters);
+    } on LocationServiceException catch (e) {
+      if (!mounted) return;
+      setState(() => _distanceErrorMessage = describeLocationFailure(e.reason));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _distanceErrorMessage = '距離を確認できませんでした。');
+    }
+  }
+
+  bool get _canConnect {
+    final meters = _distanceMeters;
+    return meters != null && classifyDistanceState(meters) == KotonohaDistanceState.connectable;
+  }
+
+  Future<void> _onConnectPressed() async {
+    final parentId = int.parse(widget.item.id);
+    final connected = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ConnectCommentInputScreen(parentId: parentId),
+      ),
+    );
+    // Mirrors KotonohaDetailScreen._onConnectPressed: a successful connect
+    // closes this screen too, returning to the tile list/popup underneath.
+    if (connected == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
+  }
 
   Future<void> _openPhoto(BuildContext context) async {
     final connected = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => KotonohaDetailScreen(item: item, locationService: locationService),
+        builder: (_) => KotonohaDetailScreen(item: widget.item, locationService: widget.locationService),
       ),
     );
     // A successful 繋ぐ, reached several screens further down, already
@@ -74,6 +148,8 @@ class KotonohaWordsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final item = widget.item;
+    final connectedItems = widget.connectedItems;
     return Scaffold(
       appBar: AppBar(),
       body: SafeArea(
@@ -139,6 +215,36 @@ class KotonohaWordsScreen extends StatelessWidget {
                                   ),
                                 ),
                             ],
+                            const SizedBox(height: 16),
+                            // Real-device fix: "繋ぐ" now lives here too,
+                            // directly on the screen "言の葉をひらく"
+                            // actually opens — not only behind the small
+                            // photo's undiscoverable tap (see class doc
+                            // comment). Same styling, same canConnect
+                            // gating, same target screen as
+                            // KotonohaDetailScreen's own 繋ぐ button.
+                            if (_distanceErrorMessage != null) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Text(
+                                  _distanceErrorMessage!,
+                                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4C7A3D),
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: const Color(0xFF4C7A3D).withValues(alpha: 0.38),
+                                  disabledForegroundColor: Colors.white70,
+                                ),
+                                onPressed: _canConnect ? _onConnectPressed : null,
+                                child: const Text('繋ぐ'),
+                              ),
+                            ),
                           ],
                         ),
                       ),

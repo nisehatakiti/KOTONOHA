@@ -17,9 +17,19 @@ if (localPropertiesFile.exists()) {
 }
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY", "")
 
-// Google Mobile Ads (AdMob) App ID (STEP9): same pattern as MAPS_API_KEY
-// above — read from the git-ignored local.properties, never hardcoded.
-val adMobAppId: String = localProperties.getProperty("ADMOB_APP_ID", "")
+// Google Mobile Ads (AdMob) App ID: unlike MAPS_API_KEY above, this is not
+// a secret — it ships directly inside every built APK's own manifest,
+// trivially readable via `aapt2 dump badging` (or by anyone who installs
+// the app), so there is no confidentiality reason to keep the real one out
+// of git, and no local.properties override — a stale/forgotten override
+// value could otherwise silently clobber both build types' own defaults
+// identically, defeating the whole point of the split below. debug always
+// gets Google's official public test App ID (AdMob's own guidance: a
+// development build must never serve production ad requests — see
+// https://developers.google.com/admob/android/test-ads); release always
+// gets KOTONOHA's real production App ID.
+val testAdMobAppId = "ca-app-pub-3940256099942544~3347511713"
+val productionAdMobAppId = "ca-app-pub-8340366887352312~8046060256"
 
 android {
     namespace = "com.nisehatakiti.kotonoha"
@@ -45,10 +55,17 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
-        manifestPlaceholders["ADMOB_APP_ID"] = adMobAppId
+        // Per-build-type AdMob App ID defaults (test for debug, production
+        // for release) are set explicitly on each buildType below — this
+        // default only exists as a safety net for some future buildType
+        // that forgets to set its own.
+        manifestPlaceholders["ADMOB_APP_ID"] = testAdMobAppId
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["ADMOB_APP_ID"] = testAdMobAppId
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
@@ -66,6 +83,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            manifestPlaceholders["ADMOB_APP_ID"] = productionAdMobAppId
         }
     }
 }

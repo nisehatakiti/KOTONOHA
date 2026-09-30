@@ -14,11 +14,12 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
-        <!-- Google Mobile Ads (AdMob) App ID (STEP9). Value is injected by
-             android/app/build.gradle.kts from the git-ignored
-             android/local.properties (key ADMOB_APP_ID); never hardcode it
-             here. Currently set to Google's official public test App ID —
-             see android/local.properties for the replace-before-release note. -->
+        <!-- Google Mobile Ads (AdMob) App ID. Value is injected by
+             android/app/build.gradle.kts's per-build-type
+             manifestPlaceholders (debug -> Google's public test App ID,
+             release -> KOTONOHA's own production App ID) — never hardcode
+             it here; see that file's own comment for why the real value is
+             safe to commit. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${ADMOB_APP_ID}" />

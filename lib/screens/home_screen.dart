@@ -280,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // now reached one tap deeper, by tapping the small photo there.
     // _selectedConnectedItems is already sitting in state from the same
     // fetch that produced `root`; no extra network call.
-    await Navigator.of(context).push(
+    final connected = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => KotonohaWordsScreen(
           item: item,
@@ -288,9 +288,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    // Keep the same popup showing after returning (STEP11-UI section 16,
-    // recommended option) — a successful connect doesn't change the Root
-    // post's own data, and no new map pin is ever added for it.
+    // Real-device fix: a successful connect (from either KotonohaWordsScreen's
+    // own 繋ぐ button or KotonohaDetailScreen's, reached via the photo tap —
+    // both bubble `true` up through this same push) used to leave the leaf
+    // popup showing its stale, pre-connect connections list until the user
+    // manually reopened it. Re-running the same fetch _onLeafTap already
+    // uses (also reused by _retrySelected) refreshes _selectedConnectedItems
+    // in place, so the just-added word appears in the popup immediately —
+    // still "the same popup", just with current data.
+    if (connected == true && mounted) {
+      await _onLeafTap(root.id);
+    }
   }
 
   /// Full flow (docs/ui.md section 3): re-fetch current location -> update
